@@ -1,0 +1,58 @@
+version: 2.1
+workflows:
+  build:
+    jobs:
+      - build:
+          context:
+            - dockerhub
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
+      - dependabot:
+          filters:
+            branches:
+              only: 
+                - /dependabot.*/
+jobs:
+  build:
+    working_directory: ~/app
+    docker:
+      - image: cimg/base:current
+        auth:
+          username: $DOCKERHUB_USERNAME
+          password: $DOCKERHUB_PASSWORD
+    steps:
+      - checkout
+      - run:
+          name: Init git submodule && clone build-helper
+          command: |
+            git submodule update --init --recursive
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: build process
+          command: |      
+            docker compose build
+      - run:
+          name: upload image
+          command: |
+            echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USERNAME --password-stdin
+            docker compose push --include-deps
+  dependabot:
+    working_directory: ~/app
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Init git submodule && clone build-helper
+          command: |
+            git submodule update --init --recursive
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: build process
+          command: |      
+            docker compose build
