@@ -1,0 +1,13 @@
+venv
+README.md
+docs
+.idea
+.env
+.github
+.git
+.gitignore
+.circleci
+.dockerignore
+Dockerfile
+docker-compose.yml
+utils
