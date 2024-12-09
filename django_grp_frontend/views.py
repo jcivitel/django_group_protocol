@@ -9,6 +9,10 @@ from django_grp_backend.models import Resident, Protocol
 
 from django.utils.timezone import now
 from datetime import datetime
+
+from django_grp_frontend.forms import ResidentForm
+
+
 def login_view(request):
     if request.method == "POST":
         username = request.POST["username"]
@@ -39,8 +43,8 @@ def dashboard(request):
 
     template_opts["residents"] = Resident.objects.filter(moved_out_since__isnull=True)
     template_opts["protocols"] = Protocol.objects.filter(
-        protocol_date__year=today.year,
-    protocol_date__month=today.month)
+        protocol_date__year=today.year, protocol_date__month=today.month
+    )
 
     return HttpResponse(template.render(template_opts, request))
 
@@ -58,9 +62,11 @@ def resident(request, id=None):
     if id is None:
         template = loader.get_template("list_residents.html")
         template_opts = dict()
+        template_opts["residents"] = Resident.objects.all()
     else:
         template = loader.get_template("resident.html")
         template_opts = dict()
+        template_opts["form"] = ResidentForm(instance=Resident.objects.get(id=id))
 
     return HttpResponse(template.render(template_opts, request))
 

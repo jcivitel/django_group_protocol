@@ -1,4 +1,31 @@
 {% extends "base/base.html" %}
 {% block content %}
-    <h1>Resident</h1>
+    <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="mb-3">
+        <label for="{{ form.fist_name.auto_id }}" class="form-label">Firstname</label>
+        {{ form.first_name }}
+    </div>
+    <div class="mb-3">
+        <label for="{{ form.last_name.auto_id }}" class="form-label">Nachname</label>
+        {{ form.last_name }}
+    </div>
+    <div class="mb-3">
+        <label for="{{ form.picture.auto_id }}" class="form-label">Bild</label>
+        {{ form.picture }}
+    </div>
+    <div class="mb-3">
+        <label for="{{ form.moved_in_since.auto_id }}" class="form-label">Eingezogen seit</label>
+        {{ form.moved_in_since }}
+    </div>
+    <div class="mb-3">
+        <label for="{{ form.moved_out_since.auto_id }}" class="form-label">Ausgezogen seit</label>
+        {{ form.moved_out_since }}
+    </div>
+    <div class="mb-3">
+        <label for="{{ form.group.auto_id }}" class="form-label">Gruppe</label>
+        {{ form.group }}
+    </div>
+    <button type="submit" class="btn btn-primary">Update</button>
+</form>
 {% endblock %}

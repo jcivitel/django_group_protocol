@@ -1,4 +1,46 @@
 {% extends "base/base.html" %}
 {% block content %}
-    <h1>List Residents</h1>
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h1>Residents</h1>
+        </div>
+        <div class="card-body">
+            <table class="table table-striped">
+                <tr>
+                    <th>Picture</th>
+                    <th>Name</th>
+                    <th>moved in since</th>
+                    <th>moved out since</th>
+                    <th>Group</th>
+                </tr>
+                {% for resident in residents %}
+                    <tr>
+                        <th>
+                            {% if resident.picture %}
+                                <img src="{{ resident.picture.url }}" alt="profil"
+                                     class="img-fluid rounded" style="max-width: 100px; max-height: 100px;">
+                            {% else %}
+                                <div class="d-flex align-items-center justify-content-center bg-secondary text-white rounded"
+                                     style="width: 100px; height: 100px;">
+                                    <span>No Image</span>
+                                </div>
+                            {% endif %}
+                        </th>
+                        <th><a href="{% url 'resident' resident.id %}"
+                               class="text-body-emphasis">{{ resident.get_full_name }}</a></th>
+                        <th><a href="{% url 'resident' resident.id %}"
+                               class="text-body-emphasis">{{ resident.moved_in_since|date:"c" }}</a></th>
+                        <th><a href="{% url 'resident' resident.id %}"
+                               class="text-body-emphasis">{{ resident.moved_out_since|date:"c" }}</a></th>
+                        <th><a href="{% url 'resident' resident.group.id %}"
+                               class="text-body-emphasis">{{ resident.group }}</a></th>
+                    </tr>
+                {% endfor %}
+            </table>
+        </div>
+        <div class="card-footer py-4">
+            <a href="{% url "add_resident" %}" class="btn btn-primary"><i class="bi bi-person-add"></i> New
+                Resident</a>
+        </div>
+    </div>
 {% endblock %}
