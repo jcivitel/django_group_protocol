@@ -5,7 +5,10 @@ from django.http import HttpResponse
 from django.shortcuts import render, redirect
 from django.template import loader
 
+from django_grp_backend.models import Resident, Protocol
 
+from django.utils.timezone import now
+from datetime import datetime
 def login_view(request):
     if request.method == "POST":
         username = request.POST["username"]
@@ -31,6 +34,13 @@ def logout_view(request):
 def dashboard(request):
     template = loader.get_template("dashboard.html")
     template_opts = dict()
+
+    today = now().date()
+
+    template_opts["residents"] = Resident.objects.filter(moved_out_since__isnull=True)
+    template_opts["protocols"] = Protocol.objects.filter(
+        protocol_date__year=today.year,
+    protocol_date__month=today.month)
 
     return HttpResponse(template.render(template_opts, request))
 

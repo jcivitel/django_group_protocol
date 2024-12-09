@@ -1,14 +1,43 @@
 {% extends "base/base.html" %}
+{% load static %}
+
+{% block customjs %}
+    <script src="{% static 'fullcalendar/js/index.global.min.js' %}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var calendarEl = document.getElementById('calendar');
+
+            var calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                locale: 'de',
+                events: [
+                    {% for protocol in protocols %}
+                        {
+                            title: 'Nr: {{ protocol.id }}',
+                            start: '{{ protocol.protocol_date|date:"c" }}',
+                            id: '{{ protocol.id }}'
+                        },
+                    {% endfor %}
+                ],
+                eventClick: function (info) {
+                    window.location.href = '/protocol/' + info.event.id;
+                }
+            });
+            calendar.render();
+        });
+    </script>
+{% endblock %}
+
 {% block content %}
     {% now "H" as current_time %}
     <div>
         <h1>Good
             {% if current_time|add:0 >= 17 %}
-                evening
+                evening,
             {% elif current_time|add:0 >= 12 %}
-                afternoon
+                afternoon,
             {% else %}
-                morning
+                morning,
             {% endif %}
             {% if user.get_full_name != "" %}{{ user.get_full_name }}{% else %}{{ user }}{% endif %}
         </h1>
@@ -20,10 +49,16 @@
                     <div>Last Protocols:</div>
                 </div>
                 <div class="card-body">
-
+                    {% if protocols %}
+                        <div id="calendar"></div>
+                        {{ protocol.protocol_date }}
+                    {% else %}
+                        <div class="alert alert-warning" role="alert">No current Protocols</div>
+                    {% endif %}
                 </div>
                 <div class="card-footer">
-                    <a href="{% url "add_protocol" %}" class="btn btn-primary"><i class="bi bi-journal-plus"></i> New Protocol</a>
+                    <a href="{% url "add_protocol" %}" class="btn btn-primary"><i class="bi bi-journal-plus"></i> New
+                        Protocol</a>
                 </div>
             </div>
             <div class="card shadow-lg col-12 col-md-5">
@@ -31,7 +66,32 @@
                     <div>Current Residents:</div>
                 </div>
                 <div class="card-body">
-
+                    {% if residents %}
+                        {% for resident in residents %}
+                            <a href="{% url "resident" resident.id %}"
+                               class="link-body-emphasis link-underline-opacity-0">
+                                <div class="row mb-3 align-items-center">
+                                    <div class="col-auto">
+                                        {% if resident.picture %}
+                                            <img src="{{ resident.picture.url }}" alt="profil"
+                                                 class="img-fluid rounded" style="max-width: 100px; max-height: 100px;">
+                                        {% else %}
+                                            <div class="d-flex align-items-center justify-content-center bg-secondary text-white rounded"
+                                                 style="width: 100px; height: 100px;">
+                                                <span>No Image</span>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                    <div class="col">
+                                        <h5 class="mb-1">{{ resident.get_full_name }}</h5>
+                                        <p class="mb-0 text-muted">Moved in since: {{ resident.moved_in_since }}</p>
+                                    </div>
+                                </div>
+                            </a>
+                        {% endfor %}
+                    {% else %}
+                        <div class="alert alert-warning" role="alert">No current Resident</div>
+                    {% endif %}
                 </div>
                 <div class="card-footer">
                 </div>
