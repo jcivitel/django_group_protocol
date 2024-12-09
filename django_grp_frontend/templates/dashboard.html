@@ -1,0 +1,41 @@
+{% extends "base/base.html" %}
+{% block content %}
+    {% now "H" as current_time %}
+    <div>
+        <h1>Good
+            {% if current_time|add:0 >= 17 %}
+                evening
+            {% elif current_time|add:0 >= 12 %}
+                afternoon
+            {% else %}
+                morning
+            {% endif %}
+            {% if user.get_full_name != "" %}{{ user.get_full_name }}{% else %}{{ user }}{% endif %}
+        </h1>
+    </div>
+    <div class="container mt-3">
+        <div class="row">
+            <div class="card shadow-lg col-12 col-md-5 me-md-4">
+                <div class="card-header mt-2">
+                    <div>Last Protocols:</div>
+                </div>
+                <div class="card-body">
+
+                </div>
+                <div class="card-footer">
+                    <a href="{% url "add_protocol" %}" class="btn btn-primary"><i class="bi bi-journal-plus"></i> New Protocol</a>
+                </div>
+            </div>
+            <div class="card shadow-lg col-12 col-md-5">
+                <div class="card-header mt-2">
+                    <div>Current Residents:</div>
+                </div>
+                <div class="card-body">
+
+                </div>
+                <div class="card-footer">
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
