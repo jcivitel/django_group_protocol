@@ -17,7 +17,7 @@ class Group(models.Model):
 class Resident(models.Model):
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
-    picture = models.ImageField()
+    picture = models.ImageField(blank=True, null=True)
     moved_in_since = models.DateField(auto_now_add=True)
     moved_out_since = models.DateField(default=None, null=True)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
