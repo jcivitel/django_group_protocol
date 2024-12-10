@@ -19,7 +19,7 @@ class Group(models.Model):
 class Resident(models.Model):
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
-    picture = models.ImageField(blank=True, null=True)
+    picture = models.ImageField(blank=True, null=True, upload_to="images/")
     moved_in_since = models.DateField()
     moved_out_since = models.DateField(default=None, null=True, blank=True)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
@@ -43,7 +43,6 @@ class Protocol(models.Model):
     last_updated = models.DateField(auto_now=True)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
     exported = models.BooleanField(default=False)
-
 
     def __str__(self):
         return f"{self.group.name} - {self.protocol_date}"

@@ -66,15 +66,32 @@ def resident(request, id=None):
     else:
         template = loader.get_template("resident.html")
         template_opts = dict()
+        if request.method == "POST":
+            form = ResidentForm(request.POST, instance=Resident.objects.get(id=id))
+            if form.is_valid():
+                form.save()
+                messages.success(request, "Resident has been updated")
+                return redirect("resident")
+
         template_opts["form"] = ResidentForm(instance=Resident.objects.get(id=id))
+        template_opts["action"] = "Update"
 
     return HttpResponse(template.render(template_opts, request))
 
 
 @login_required
 def add_resident(request):
-    template = loader.get_template("add_resident.html")
+    template = loader.get_template("resident.html")
     template_opts = dict()
+    if request.method == "POST":
+        form = ResidentForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Resident has been added")
+            return redirect("resident")
+
+    template_opts["form"] = ResidentForm()
+    template_opts["action"] = "Add"
 
     return HttpResponse(template.render(template_opts, request))
 
@@ -93,7 +110,7 @@ def protocol(request, id=None):
 
 @login_required
 def add_protocol(request):
-    template = loader.get_template("add_protocol.html")
+    template = loader.get_template("protocol.html")
     template_opts = dict()
 
     return HttpResponse(template.render(template_opts, request))
