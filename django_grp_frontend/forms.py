@@ -1,9 +1,10 @@
 from django import forms
 from django.contrib.auth.forms import UserChangeForm
 
-from django_grp_backend.models import Resident
+from django_grp_backend.models import Resident, Group
 
 from django.contrib.auth.models import User
+
 
 class ResidentForm(forms.ModelForm):
     class Meta:
@@ -30,8 +31,9 @@ class ResidentForm(forms.ModelForm):
             "moved_out_since": forms.DateInput(
                 attrs={"class": "form-control", "type": "date"}, format="%Y-%m-%d"
             ),
-            "group": forms.Select(attrs={"class": "form-control"}),
+            "group": forms.Select(attrs={"class": "form-select"}),
         }
+
 
 class ProfileForm(forms.ModelForm):
     class Meta:
@@ -42,7 +44,38 @@ class ProfileForm(forms.ModelForm):
             "email",
         ]
         widgets = {
-            "first_name": forms.TextInput(attrs={"class": "form-control", "placeholder": "Username"}),
-            "last_name": forms.TextInput(attrs={"class": "form-control", "placeholder": "Username"}),
-            "email": forms.TextInput(attrs={"class": "form-control", "placeholder": "Username"}),
+            "first_name": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "Username"}
+            ),
+            "last_name": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "Username"}
+            ),
+            "email": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "Username"}
+            ),
+        }
+
+
+class GroupForm(forms.ModelForm):
+    class Meta:
+        model = Group
+        fields = [
+            "name",
+            "address",
+            "postalcode",
+            "city",
+        ]
+        widgets = {
+            "name": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "Name"}
+            ),
+            "address": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "Address"}
+            ),
+            "postalcode": forms.NumberInput(
+                attrs={"class": "form-control", "placeholder": "Postal Code"}
+            ),
+            "city": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "City"}
+            ),
         }

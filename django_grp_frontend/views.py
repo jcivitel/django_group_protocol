@@ -5,12 +5,12 @@ from django.http import HttpResponse
 from django.shortcuts import render, redirect
 from django.template import loader
 
-from django_grp_backend.models import Resident, Protocol
+from django_grp_backend.models import Resident, Protocol, Group
 
 from django.utils.timezone import now
 from datetime import datetime
 
-from django_grp_frontend.forms import ResidentForm, ProfileForm
+from django_grp_frontend.forms import ResidentForm, ProfileForm, GroupForm
 
 
 def login_view(request):
@@ -119,5 +119,45 @@ def protocol(request, id=None):
 def add_protocol(request):
     template = loader.get_template("protocol.html")
     template_opts = dict()
+
+    return HttpResponse(template.render(template_opts, request))
+
+
+@login_required
+def group(request, id=None):
+    if id is None:
+        template = loader.get_template("list_groups.html")
+        template_opts = dict()
+        template_opts["groups"] = Group.objects.all()
+    else:
+        template = loader.get_template("group.html")
+        template_opts = dict()
+        if request.method == "POST":
+            form = GroupForm(request.POST, instance=Group.objects.get(id=id))
+            if form.is_valid():
+                form.save()
+                messages.success(request, "Group has been updated")
+                return redirect("group")
+
+        template_opts["form"] = GroupForm(instance=Group.objects.get(id=id))
+        template_opts["group_member"] = Resident.objects.filter(group__id=id)
+        template_opts["action"] = "Update"
+
+    return HttpResponse(template.render(template_opts, request))
+
+
+@login_required
+def add_group(request):
+    template = loader.get_template("group.html")
+    template_opts = dict()
+    if request.method == "POST":
+        form = GroupForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Group has been added")
+            return redirect("group")
+
+    template_opts["form"] = GroupForm()
+    template_opts["action"] = "Add"
 
     return HttpResponse(template.render(template_opts, request))

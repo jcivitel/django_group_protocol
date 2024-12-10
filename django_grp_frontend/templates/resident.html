@@ -37,6 +37,7 @@
                         <div class="form-floating mb-3 col-6">
                             {{ form.group }}
                             <label for="{{ form.group.auto_id }}" class="form-label text-body-emphasis">Gruppe</label>
+                            <a href="{% url "group" form.group.value %}" class="text-body-emphasis">to group <i class="bi bi-box-arrow-up-right"></i></a>
                         </div>
                     </div>
                     <button type="submit" class="btn btn-primary">{{ action }}</button>

@@ -12,5 +12,8 @@ urlpatterns = [
     path("protocol/", views.protocol, name="protocol"),
     path("protocol/<int:id>/", views.protocol, name="protocol"),
     path("add_protocol/", views.add_protocol, name="add_protocol"),
+    path("group/", views.group, name="group"),
+    path("group/<int:id>/", views.group, name="group"),
+    path("add_group/", views.add_group, name="add_group"),
     path("profile/", views.profile, name="profile"),
 ]
