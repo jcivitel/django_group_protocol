@@ -32,7 +32,7 @@
                                class="text-body-emphasis">{{ resident.moved_in_since|date:"c" }}</a></th>
                         <th><a href="{% url 'resident' resident.id %}"
                                class="text-body-emphasis">{{ resident.moved_out_since|date:"c" }}</a></th>
-                        <th><a href="{% url 'resident' resident.group.id %}"
+                        <th><a href="{% url 'group' resident.group.id %}"
                                class="text-body-emphasis">{{ resident.group }}</a></th>
                     </tr>
                 {% endfor %}
