@@ -4,8 +4,8 @@ from rest_framework import viewsets
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import IsAuthenticated
 
-from django_grp_backend.models import Protocol
-from .serializers import ProtocolSerializer
+from django_grp_backend.models import Protocol, Group, Resident
+from .serializers import ProtocolSerializer, GroupSerializer, ResidentSerializer
 
 
 class ProtocolViewSet(viewsets.ModelViewSet):
@@ -18,3 +18,15 @@ class ProtocolViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save()
+
+
+class GroupViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    queryset = Group.objects.all()
+    serializer_class = GroupSerializer
+
+
+class ResidentViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    queryset = Resident.objects.all()
+    serializer_class = ResidentSerializer
