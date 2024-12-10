@@ -1,31 +1,38 @@
 {% extends "base/base.html" %}
 {% block content %}
-    <form method="post" enctype="multipart/form-data">
-    {% csrf_token %}
-    <div class="mb-3">
-        <label for="{{ form.fist_name.auto_id }}" class="form-label">Firstname</label>
-        {{ form.first_name }}
+    <div class="container align-content-center">
+        <div class="card card-body col-10">
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="row">
+                    <div class="form-floating mb-3 col-4">
+                        {{ form.picture }}
+                        <label for="{{ form.picture.auto_id }}" class="form-label text-body-emphasis">Bild</label>
+                    </div>
+                    <div class="col-9"></div>
+                    <div class="form-floating mb-3 col-6">
+                        {{ form.first_name }}
+                        <label for="{{ form.fist_name.auto_id }}" class="form-label text-body-emphasis">Firstname</label>
+                    </div>
+                    <div class="form-floating mb-3 col-6">
+                        {{ form.last_name }}
+                        <label for="{{ form.last_name.auto_id }}" class="form-label text-body-emphasis">Nachname</label>
+                    </div>
+                    <div class="form-floating mb-3 col-6">
+                        {{ form.moved_in_since }}
+                        <label for="{{ form.moved_in_since.auto_id }}" class="form-label text-body-emphasis">Eingezogen seit</label>
+                    </div>
+                    <div class="form-floating mb-3 col-6">
+                        {{ form.moved_out_since }}
+                        <label for="{{ form.moved_out_since.auto_id }}" class="form-label text-body-emphasis">Ausgezogen seit</label>
+                    </div>
+                    <div class="form-floating mb-3 col-6">
+                        {{ form.group }}
+                        <label for="{{ form.group.auto_id }}" class="form-label text-body-emphasis">Gruppe</label>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">{{ action }}</button>
+            </form>
+        </div>
     </div>
-    <div class="mb-3">
-        <label for="{{ form.last_name.auto_id }}" class="form-label">Nachname</label>
-        {{ form.last_name }}
-    </div>
-    <div class="mb-3">
-        <label for="{{ form.picture.auto_id }}" class="form-label">Bild</label>
-        {{ form.picture }}
-    </div>
-    <div class="mb-3">
-        <label for="{{ form.moved_in_since.auto_id }}" class="form-label">Eingezogen seit</label>
-        {{ form.moved_in_since }}
-    </div>
-    <div class="mb-3">
-        <label for="{{ form.moved_out_since.auto_id }}" class="form-label">Ausgezogen seit</label>
-        {{ form.moved_out_since }}
-    </div>
-    <div class="mb-3">
-        <label for="{{ form.group.auto_id }}" class="form-label">Gruppe</label>
-        {{ form.group }}
-    </div>
-    <button type="submit" class="btn btn-primary">Update</button>
-</form>
 {% endblock %}
