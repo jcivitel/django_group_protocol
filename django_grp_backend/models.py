@@ -44,16 +44,14 @@ class Protocol(models.Model):
 
 class ProtocolItem(models.Model):
     protocol = models.ForeignKey(
-        Protocol,
-        related_name='items',
-        on_delete=models.CASCADE
+        Protocol, related_name="items", on_delete=models.CASCADE
     )
     name = models.CharField(max_length=100)
     position = models.IntegerField(default=0)
     value = models.TextField(blank=True, null=True)
 
     class Meta:
-        ordering = ['position']
+        ordering = ["position"]
 
     def __str__(self):
         return f"{self.protocol} - {self.name}"
