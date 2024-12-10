@@ -1,4 +1,32 @@
 {% extends "base/base.html" %}
 {% block content %}
-    <h1>Profile</h1>
+    <div class="container align-content-center">
+        <div class="card col-10">
+            <div class="card-header">
+                <h1>Profile</h1>
+            </div>
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="row">
+                        <div class="form-floating mb-3 col-4">
+                            {{ form.first_name }}
+                            <label for="{{ form.fist_name.auto_id }}"
+                                   class="form-label text-body-emphasis">Firstname</label>
+                        </div>
+                        <div class="form-floating mb-3 col-4">
+                            {{ form.last_name }}
+                            <label for="{{ form.last_name.auto_id }}"
+                                   class="form-label text-body-emphasis">Nachname</label>
+                        </div>
+                        <div class="form-floating mb-3 col-4">
+                            {{ form.email }}
+                            <label for="{{ form.email.auto_id }}" class="form-label text-body-emphasis">E-Mail</label>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Update</button>
+                </form>
+            </div>
+        </div>
+    </div>
 {% endblock %}

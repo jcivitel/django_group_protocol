@@ -10,7 +10,7 @@ from django_grp_backend.models import Resident, Protocol
 from django.utils.timezone import now
 from datetime import datetime
 
-from django_grp_frontend.forms import ResidentForm
+from django_grp_frontend.forms import ResidentForm, ProfileForm
 
 
 def login_view(request):
@@ -53,6 +53,13 @@ def dashboard(request):
 def profile(request):
     template = loader.get_template("profile.html")
     template_opts = dict()
+    if request.method == "POST":
+        form = ProfileForm(request.POST, instance=request.user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Your profile has been updated")
+            return redirect("profile")
+    template_opts["form"] = ProfileForm(instance=request.user)
 
     return HttpResponse(template.render(template_opts, request))
 

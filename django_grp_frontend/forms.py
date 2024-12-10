@@ -1,6 +1,9 @@
 from django import forms
+from django.contrib.auth.forms import UserChangeForm
+
 from django_grp_backend.models import Resident
 
+from django.contrib.auth.models import User
 
 class ResidentForm(forms.ModelForm):
     class Meta:
@@ -28,4 +31,18 @@ class ResidentForm(forms.ModelForm):
                 attrs={"class": "form-control", "type": "date"}, format="%Y-%m-%d"
             ),
             "group": forms.Select(attrs={"class": "form-control"}),
+        }
+
+class ProfileForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = [
+            "first_name",
+            "last_name",
+            "email",
+        ]
+        widgets = {
+            "first_name": forms.TextInput(attrs={"class": "form-control", "placeholder": "Username"}),
+            "last_name": forms.TextInput(attrs={"class": "form-control", "placeholder": "Username"}),
+            "email": forms.TextInput(attrs={"class": "form-control", "placeholder": "Username"}),
         }
