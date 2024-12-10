@@ -31,12 +31,6 @@ class Resident(models.Model):
         return self.get_full_name()
 
 
-class ProtocolItem(models.Model):
-    name = models.CharField(max_length=100)
-    position = models.IntegerField()
-    value = models.TextField()
-
-
 class Protocol(models.Model):
     protocol_date = models.DateField()
     date_added = models.DateField(auto_now_add=True)
@@ -46,3 +40,20 @@ class Protocol(models.Model):
 
     def __str__(self):
         return f"{self.group.name} - {self.protocol_date}"
+
+
+class ProtocolItem(models.Model):
+    protocol = models.ForeignKey(
+        Protocol,
+        related_name='items',
+        on_delete=models.CASCADE
+    )
+    name = models.CharField(max_length=100)
+    position = models.IntegerField(default=0)
+    value = models.TextField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['position']
+
+    def __str__(self):
+        return f"{self.protocol} - {self.name}"
