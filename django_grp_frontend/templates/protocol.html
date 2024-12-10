@@ -1,10 +1,70 @@
 {% extends "base/base.html" %}
+{% load static %}
+{% block customjs %}
+    <script src="{% static 'jquery/jquery-ui.min.js' %}" type="text/javascript"></script>
+    <script>
+        function addItem() {
+            $("#sortable").append('<li class="list-group-item">New Item</li>');
+        }
+
+        $(function () {
+            $("#sortable").sortable({
+                stop: function () {
+                    SaveData();
+                }
+            });
+
+            function SaveData() {
+                var order = [];
+                $("#sortable li").each(function (index, element) {
+                    var id = $(element).data("id");
+                    order.push({id: id, position: index});
+                });
+
+                $.ajax({
+                    url: '#',
+                    method: 'POST',
+                    data: JSON.stringify(order),
+                    contentType: 'application/json',
+                    headers: {
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    success: function () {
+                        console.log("Order saved successfully!");
+                    },
+                    error: function () {
+                        console.log("Error saving order.");
+                    }
+                });
+            }
+        });
+    </script>
+{% endblock %}
 
 {% block content %}
     <div class="card">
         <div class="card-header">
-            <h2>Protokoll Formular</h2>
+            <h2>Protokoll {{ protocol.protocol_date }}</h2>
+        </div>
+        <div class="card-body">
+            <div class="card card-body shadow-sm col-2">
+                <div class="small">Group-Information:</div>
+                <div class="small">{{ protocol.group.name }}</div>
+                <div class="small">{{ protocol.group.get_full_address }}</div>
+            </div>
+            <ul id="sortable" class="list-group list-group-flush">
+                {% for item in protocol_items %}
+                    <li class="list-group-item">
+                        <div class="card card-body shadow-sm">
+                            <input class="form-control" value="{{ item.name }}">
+                            <textarea class="form-control">{{ item.value }}</textarea>
+                        </div>
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+        <div class="card-footer">
+            <button class="btn btn-primary" onclick="addItem()">Add Item</button>
         </div>
     </div>
-
 {% endblock %}

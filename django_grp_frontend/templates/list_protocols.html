@@ -1,4 +1,43 @@
 {% extends "base/base.html" %}
 {% block content %}
-    <h1>List Protocol</h1>
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h1>protocols</h1>
+        </div>
+        <div class="card-body">
+            <table class="table table-striped">
+                <tr>
+                    <th>protocol_date</th>
+                    <th>date_added</th>
+                    <th>last_updated</th>
+                    <th>group</th>
+                    <th>exported</th>
+                </tr>
+                {% for protocol in protocols %}
+                    <tr>
+                        <th><a href="{% url 'protocol' protocol.id %}"
+                               class="text-body-emphasis">{{ protocol.protocol_date }}</a></th>
+                        <th><a href="{% url 'protocol' protocol.id %}"
+                               class="text-body-emphasis">{{ protocol.date_added }}</a></th>
+                        <th><a href="{% url 'protocol' protocol.id %}"
+                               class="text-body-emphasis">{{ protocol.last_updated }}</a></th>
+                        <th><a href="{% url 'protocol' protocol.id %}"
+                               class="text-body-emphasis">{{ protocol.group }}</a></th>
+                        <th><a href="{% url 'protocol' protocol.id %}"
+                               class="text-body-emphasis">
+                            {% if protocol.exported is True %}
+                                <i class="bi bi-check-circle-fill"></i>
+                            {% else %}
+                                <i class="bi bi-x-circle-fill"></i>
+                            {% endif %}
+                        </a></th>
+                    </tr>
+                {% endfor %}
+            </table>
+        </div>
+        <div class="card-footer py-4">
+            <a href="{% url "add_protocol" %}" class="btn btn-primary"><i class="bi bi-journal-plus"></i> New
+                protocol</a>
+        </div>
+    </div>
 {% endblock %}
