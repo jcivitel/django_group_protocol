@@ -5,7 +5,7 @@ from django.http import HttpResponse
 from django.shortcuts import render, redirect
 from django.template import loader
 
-from django_grp_backend.models import Resident, Protocol, Group
+from django_grp_backend.models import Resident, Protocol, Group, ProtocolItem
 
 from django.utils.timezone import now
 from datetime import datetime
@@ -108,9 +108,12 @@ def protocol(request, id=None):
     if id is None:
         template = loader.get_template("list_protocols.html")
         template_opts = dict()
+        template_opts["protocols"] = Protocol.objects.all()
     else:
         template = loader.get_template("protocol.html")
         template_opts = dict()
+        template_opts["protocol"] = Protocol.objects.get(id=id)
+        template_opts["protocol_items"] = ProtocolItem.objects.filter(protocol=id)
 
     return HttpResponse(template.render(template_opts, request))
 
