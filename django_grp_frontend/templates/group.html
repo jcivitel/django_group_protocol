@@ -29,13 +29,25 @@
                             <label for="{{ form.city.auto_id }}"
                                    class="form-label text-body-emphasis">city</label>
                         </div>
+                        <div class="card card-body mb-2">
+                            <h6>Members</h6>
+                            {% for member in group_members %}
+                                <div class="form-check form-switch mb-3 col-6">
+                                    <input class="form-check-input" type="checkbox" id="flexSwitchCheckReverse">
+                                    <label class="form-label text-body-emphasis">
+                                        {% if member.get_full_name != "" %}{{ member.get_full_name }}{% else %}
+                                            {{ member }}{% endif %}</label>
+                                </div>
+                            {% endfor %}
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-primary">{{ action }}</button>
                 </form>
             </div>
             <div class="card-footer">
-                {% for member in group_member %}
-                    <a href="{% url 'resident' member.id %}" class="text-body-emphasis">{{ member }}</a><br>
+                <h7>Residents:</h7>
+                {% for resident in group_residents %}
+                    <a href="{% url 'resident' resident.id %}" class="text-body-emphasis">{{ resident }}, </a><br>
                 {% endfor %}
             </div>
         </div>

@@ -14,7 +14,7 @@ class ProtocolSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Protocol
-        fields = ["id", "protocol_date", "group", "items","exported"]
+        fields = ["id", "protocol_date", "group", "items", "exported"]
 
 
 class GroupSerializer(serializers.ModelSerializer):

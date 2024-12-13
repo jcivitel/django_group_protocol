@@ -1,9 +1,7 @@
 from django import forms
-from django.contrib.auth.forms import UserChangeForm
-
-from django_grp_backend.models import Resident, Group
-
 from django.contrib.auth.models import User
+
+from django_grp_backend.models import Resident, Group, Protocol
 
 
 class ResidentForm(forms.ModelForm):
@@ -59,12 +57,7 @@ class ProfileForm(forms.ModelForm):
 class GroupForm(forms.ModelForm):
     class Meta:
         model = Group
-        fields = [
-            "name",
-            "address",
-            "postalcode",
-            "city",
-        ]
+        fields = ["name", "address", "postalcode", "city", "group_members"]
         widgets = {
             "name": forms.TextInput(
                 attrs={"class": "form-control", "placeholder": "Name"}
@@ -78,4 +71,19 @@ class GroupForm(forms.ModelForm):
             "city": forms.TextInput(
                 attrs={"class": "form-control", "placeholder": "City"}
             ),
+        }
+
+
+class ProtocolForm(forms.ModelForm):
+    class Meta:
+        model = Protocol
+        fields = [
+            "protocol_date",
+            "group",
+        ]
+        widgets = {
+            "protocol_date": forms.DateInput(
+                attrs={"class": "form-control", "type": "date"},
+            ),
+            "group": forms.Select(attrs={"class": "form-select"}),
         }

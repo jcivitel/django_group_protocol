@@ -1,6 +1,7 @@
-import datetime
-
+from django.contrib.auth.models import User
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 
 class Group(models.Model):
@@ -8,6 +9,7 @@ class Group(models.Model):
     address = models.CharField(max_length=100)
     postalcode = models.CharField(max_length=10)
     city = models.CharField(max_length=100)
+    group_members = models.ManyToManyField(User, blank=True)
 
     def get_full_address(self):
         return f"{self.address},\n{self.postalcode}, {self.city}"
@@ -42,6 +44,18 @@ class Protocol(models.Model):
         return f"{self.group.name} - {self.protocol_date}"
 
 
+class ProtocolPresence(models.Model):
+    protocol = models.ForeignKey(
+        Protocol,
+        on_delete=models.CASCADE,
+    )
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    was_present = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ("protocol", "user")
+
+
 class ProtocolItem(models.Model):
     protocol = models.ForeignKey(
         Protocol, related_name="items", on_delete=models.CASCADE
@@ -55,3 +69,11 @@ class ProtocolItem(models.Model):
 
     def __str__(self):
         return f"{self.protocol} - {self.name}"
+
+
+@receiver(post_save, sender=Protocol)
+def create_protocol_presence(sender, instance, created, **kwargs):
+    if created:
+        users_in_group = instance.group.group_members.all()
+        for user in users_in_group:
+            ProtocolPresence.objects.create(protocol=instance, user=user)
