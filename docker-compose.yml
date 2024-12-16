@@ -1,0 +1,9 @@
+services:
+  django_group_protocol:
+    image: jcivitell/django_group_protocol
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+      tags:
+      - "jcivitell/django_group_protocol:${CIRCLE_TAG:-notag}"
+      
