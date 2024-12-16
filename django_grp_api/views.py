@@ -92,3 +92,13 @@ class ItemValuesUpdateView(APIView):
         return Response(
             data="message: serializer.errors", status=status.HTTP_400_BAD_REQUEST
         )
+
+    def delete(self, request):
+        try:
+            ProtocolItem.objects.get(id=request.data.get("item_id")).delete()
+            return Response(
+                {"message": "Item updated"},
+                status=status.HTTP_200_OK,
+            )
+        except ProtocolItem.DoesNotExist:
+            return Response(data={"message": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
