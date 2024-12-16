@@ -31,7 +31,65 @@
                 console.error("An error occurred:", error);
             }
         }
+
+        async function post_value(item_id, name, value, position) {
+            const url = "{% url "update-item" %}";
+            const data = {
+                item_id: item_id,
+                protocol: {{ protocol.id }},
+                name: name,
+                value: value,
+                position: position
+            };
+            try {
+                const response = await fetch(url, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": "{{ csrf_token }}"
+                    },
+                    body: JSON.stringify(data),
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log("Item updated successfully:", result);
+                } else {
+                    const errorData = await response.json();
+                    console.error("Failed to update presence:", errorData);
+                }
+            } catch (error) {
+                console.error("An error occurred:", error);
+            }
+        }
+
+        async function append_item() {
+            await post_value('', '<Neu>', '', 99)
+            location.reload();
+        }
     </script>
+    <script>
+        $(document).ready(function () {
+            document.querySelectorAll('.auto-resize').forEach(textarea => {
+                textarea.addEventListener('input', () => {
+                    textarea.style.height = 'auto'; // Reset height to calculate
+                    textarea.style.height = `${textarea.scrollHeight}px`; // Set new height
+                });
+            });
+            document.querySelectorAll('.auto-resize').forEach(textarea => {
+                const event = new Event('input', {bubbles: true});
+                textarea.dispatchEvent(event);
+            });
+        })
+    </script>
+{% endblock %}
+{% block customcss %}
+    <style>
+        .auto-resize {
+            overflow: hidden; /* Hide the scrollbars */
+            resize: none; /* Disable manual resizing */
+        }
+    </style>
 {% endblock %}
 
 {% block content %}
@@ -63,11 +121,14 @@
                 <div class="card card-body shadow-sm mt-2 col-12">
                     <ul id="sortable" class="list-group list-group-flush">
                         {% for item in protocol_items %}
-                            <li class="list-group-item">
+                            <li class="list-group-item row"
+                                onchange="post_value({{ item.id }},document.getElementById('input-{{ item.id }}').value, document.getElementById('textarea-{{ item.id }}').value,0)">
                                 <div class="card card-body shadow-sm">
-                                    <input class="form-control" value="{{ item.name }}">
-                                    <textarea class="form-control auto-resize">{{ item.value }}</textarea>
+                                    <input id="input-{{ item.id }}" class="form-control" value="{{ item.name }}">
+                                    <textarea id="textarea-{{ item.id }}"
+                                              class="form-control auto-resize">{{ item.value }}</textarea>
                                 </div>
+                                <div class="btn col-1 float-end"><i class="bi bi-trash3"></i> Delete</div>
                             </li>
                         {% endfor %}
                     </ul>
@@ -75,7 +136,7 @@
             </div>
         </div>
         <div class="card-footer">
-            <button class="btn btn-primary" onclick="">Add Item</button>
+            <button class="btn btn-primary" onclick="append_item()">Add Item</button>
         </div>
     </div>
 {% endblock %}
