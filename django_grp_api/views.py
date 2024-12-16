@@ -101,4 +101,6 @@ class ItemValuesUpdateView(APIView):
                 status=status.HTTP_200_OK,
             )
         except ProtocolItem.DoesNotExist:
-            return Response(data={"message": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                data={"message": "Item not found"}, status=status.HTTP_404_NOT_FOUND
+            )

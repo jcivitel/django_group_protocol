@@ -23,3 +23,4 @@ tomli==2.2.1
 typing_extensions==4.12.2
 tzdata==2024.2
 whitenoise==6.8.2
+uwsgi==2.0.28 ; sys_platform == "linux"
