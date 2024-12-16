@@ -63,6 +63,30 @@
             }
         }
 
+        async function delete_item(item_id) {
+            const url = "{% url "update-item" %}";
+            const data = {
+                item_id: item_id
+            }
+            try {
+                const response = await fetch(url, {
+                    method: "DELETE",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": "{{ csrf_token }}"
+                    },
+                    body: JSON.stringify(data),
+                });
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log("Item deleted successfully:", result);
+                    document.getElementById("li-" + item_id).remove()
+                }
+            } catch (error) {
+                console.error("An error occurred:", error);
+            }
+        }
+
         async function append_item() {
             await post_value('', '<Neu>', '', 99)
             location.reload();
@@ -83,14 +107,7 @@
         })
     </script>
 {% endblock %}
-{% block customcss %}
-    <style>
-        .auto-resize {
-            overflow: hidden; /* Hide the scrollbars */
-            resize: none; /* Disable manual resizing */
-        }
-    </style>
-{% endblock %}
+
 
 {% block content %}
     <div class="card">
@@ -121,14 +138,16 @@
                 <div class="card card-body shadow-sm mt-2 col-12">
                     <ul id="sortable" class="list-group list-group-flush">
                         {% for item in protocol_items %}
-                            <li class="list-group-item row"
+                            <li class="list-group-item row" id="li-{{ item.id }}"
                                 onchange="post_value({{ item.id }},document.getElementById('input-{{ item.id }}').value, document.getElementById('textarea-{{ item.id }}').value,0)">
                                 <div class="card card-body shadow-sm">
                                     <input id="input-{{ item.id }}" class="form-control" value="{{ item.name }}">
                                     <textarea id="textarea-{{ item.id }}"
-                                              class="form-control auto-resize">{{ item.value }}</textarea>
+                                              class="form-control auto-resize overflow-hidden">{{ item.value }}</textarea>
                                 </div>
-                                <div class="btn col-1 float-end"><i class="bi bi-trash3"></i> Delete</div>
+                                <div class="btn col-1 float-end" onclick="delete_item({{ item.id }})"><i
+                                        class="bi bi-trash3"></i> Delete
+                                </div>
                             </li>
                         {% endfor %}
                     </ul>
