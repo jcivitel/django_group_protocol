@@ -1,6 +1,12 @@
 from rest_framework import serializers
 
-from django_grp_backend.models import Protocol, ProtocolItem, Group, Resident
+from django_grp_backend.models import (
+    Protocol,
+    ProtocolItem,
+    Group,
+    Resident,
+    ProtocolPresence,
+)
 
 
 class ProtocolItemSerializer(serializers.ModelSerializer):
@@ -41,3 +47,10 @@ class ResidentSerializer(serializers.ModelSerializer):
             "moved_in_since",
             "group",
         ]
+
+
+class ProtocolPresenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProtocolPresence
+        fields = ["protocol", "user", "was_present"]
+        unique_together = ("protocol", "user")
