@@ -1,0 +1,54 @@
+services:
+  grpproto:
+    container_name: grpproto
+    image: jcivitell/django_group_protocol:latest
+    restart: always
+    environment:
+      SECRET_KEY: django-insecure-t432afdgh49nq8lic@!^@d_+jmo7=n&^ga
+      DEBUG: False
+      ALLOWED_HOSTS: '*'
+      CORS_ALLOW_ALL_ORIGINS: True
+      MAIN_DATABASE_HOST: grpproto_mariadb
+      MAIN_DATABASE_NAME: grpproto
+      MAIN_DATABASE_USER: grpproto
+      MAIN_DATABASE_PASSWD: grpprotopw
+      MAIN_DATABASE_ENGINE: django.db.backends.mysql
+      REDIS_HOST: grpproto_redis
+    depends_on:
+      grpproto_mariadb:
+        condition: service_healthy
+      grpproto_redis:
+        condition: service_started
+
+  grpproto_mariadb:
+    container_name: grpproto_mariadb
+    image: mariadb:latest
+    restart: always
+    environment:
+      MARIADB_USER: grpproto
+      MARIADB_PASSWORD: grpprotopw
+      MARIADB_DATABASE: grpproto
+      MARIADB_ROOT_PASSWORD: megasec
+    healthcheck:
+      test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
+      start_period: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ./mysql:/var/lib/mysql
+
+  grpproto_redis:
+    container_name: grpproto_redis
+    image: redis:latest
+    restart: always
+
+  nginx:
+    container_name: grpproto_nginx
+    image: nginx:latest
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - grpproto
+    ports:
+      - "80:80"
