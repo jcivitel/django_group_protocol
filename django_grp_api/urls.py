@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework import routers
 
 from . import views
-from .views import ProtocolPresenceUpdateView
+from .views import ProtocolPresenceUpdateView, ItemValuesUpdateView
 
 router = routers.DefaultRouter()
 router.register(r"protocol", views.ProtocolViewSet, "protocol")
@@ -12,4 +12,5 @@ router.register(r"resident", views.ResidentViewSet, "resident")
 urlpatterns = [
     path("v1/", include(router.urls)),
     path("v1/presence/", ProtocolPresenceUpdateView.as_view(), name="update-presence"),
+    path("v1/item/", ItemValuesUpdateView.as_view(), name="update-item"),
 ]

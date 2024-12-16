@@ -5,7 +5,6 @@ from django_grp_backend.models import (
     ProtocolItem,
     Group,
     Resident,
-    ProtocolPresence,
 )
 
 
@@ -49,8 +48,7 @@ class ResidentSerializer(serializers.ModelSerializer):
         ]
 
 
-class ProtocolPresenceSerializer(serializers.ModelSerializer):
+class ItemSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ProtocolPresence
-        fields = ["protocol", "user", "was_present"]
-        unique_together = ("protocol", "user")
+        model = ProtocolItem
+        fields = ["id", "protocol", "name", "position", "value"]
