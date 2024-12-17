@@ -77,7 +77,9 @@ def resident(request, id=None):
         template = loader.get_template("resident.html")
         template_opts = dict()
         if request.method == "POST":
-            form = ResidentForm(request.POST, instance=Resident.objects.get(id=id))
+            form = ResidentForm(
+                request.POST, request.FILES, instance=Resident.objects.get(id=id)
+            )
             if form.is_valid():
                 form.save()
                 messages.success(request, "Resident has been updated")

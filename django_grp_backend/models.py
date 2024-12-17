@@ -1,7 +1,14 @@
+import os
+import uuid
+
+from PIL import Image
 from django.contrib.auth.models import User
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils.deconstruct import deconstructible
+
+from django_grp_backend.functions import validate_image
 
 
 class Group(models.Model):
@@ -18,16 +25,38 @@ class Group(models.Model):
         return self.name
 
 
+@deconstructible
+class RandomizedFileName:
+    def __call__(self, instance, filename):
+        ext = os.path.splitext(filename)[1]  # Get file extension
+        random_name = uuid.uuid4().hex  # Generate random string
+        return f"images/{random_name}{ext}"
+
+
 class Resident(models.Model):
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
-    picture = models.ImageField(blank=True, null=True, upload_to="images/")
+    picture = models.ImageField(
+        blank=True,
+        null=True,
+        upload_to=RandomizedFileName(),
+        validators=[validate_image],
+    )
     moved_in_since = models.DateField()
     moved_out_since = models.DateField(default=None, null=True, blank=True)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
 
     def get_full_name(self):
         return f"{self.first_name} {self.last_name}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if self.picture:
+            img = Image.open(self.picture.path)
+            if img.height > 800 or img.width > 800:
+                output_size = (800, 800)
+                img.thumbnail(output_size)
+                img.save(self.picture.path)
 
     def __str__(self):
         return self.get_full_name()
