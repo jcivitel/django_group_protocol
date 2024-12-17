@@ -4,6 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import render, redirect
 from django.template import loader
+from django.utils.timezone import now
 
 from django_grp_backend.models import (
     Resident,
@@ -12,10 +13,6 @@ from django_grp_backend.models import (
     ProtocolItem,
     ProtocolPresence,
 )
-
-from django.utils.timezone import now
-from datetime import datetime
-
 from django_grp_frontend.forms import ResidentForm, ProfileForm, GroupForm, ProtocolForm
 
 
@@ -160,7 +157,6 @@ def group(request, id=None):
 
         template_opts["form"] = GroupForm(instance=Group.objects.get(id=id))
         template_opts["group_residents"] = Resident.objects.filter(group__id=id)
-        template_opts["group_members"] = Group.objects.get(id=id).group_members.all()
         template_opts["action"] = "Update"
 
     return HttpResponse(template.render(template_opts, request))

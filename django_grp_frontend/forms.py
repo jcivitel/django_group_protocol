@@ -55,6 +55,14 @@ class ProfileForm(forms.ModelForm):
 
 
 class GroupForm(forms.ModelForm):
+    group_members = forms.ModelMultipleChoiceField(
+        queryset=User.objects.all(),
+        widget=forms.CheckboxSelectMultiple(
+            attrs={"class": "form-check-input", "role": "switch"}
+        ),
+        required=False,
+    )
+
     class Meta:
         model = Group
         fields = ["name", "address", "postalcode", "city", "group_members"]
