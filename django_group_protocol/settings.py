@@ -73,6 +73,8 @@ AUTO_LOGOUT = {
 ROOT_URLCONF = "django_group_protocol.urls"
 
 STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
+WHITENOISE_USE_FINDERS = True
+WHITENOISE_MANIFEST_STRICT = False
 
 TEMPLATES = [
     {
