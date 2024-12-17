@@ -130,7 +130,7 @@
                                        onclick="post_presence({{ user.user.id }},this.checked)"
                                        {% if user.was_present %}checked{% endif %}>
                                 <label class="form-check-label"
-                                       for="flexSwitchCheckReverse">{{ user.user.get_full_name }}</label>
+                                       for="flexSwitchCheckReverse">{% firstof user.user.get_full_name  user.user.username %}</label>
                             </div>
                         {% endfor %}
                     </div>
