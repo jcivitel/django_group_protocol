@@ -40,7 +40,7 @@
             {% else %}
                 morning,
             {% endif %}
-            {% if user.get_full_name != "" %}{{ user.get_full_name }}{% else %}{{ user }}{% endif %}
+            {% firstof user.get_full_name user.username %}
         </h1>
     </div>
     <div class="container mt-3">
