@@ -1,7 +1,7 @@
 FROM python:3.12-alpine AS builder
 
 RUN apk add --no-cache libgcc mariadb-connector-c pkgconf mariadb-dev \
-    postgresql-dev linux-headers
+    postgresql-dev linux-headers musl-dev gcc
 
 WORKDIR /opt/grpproto/
 ENV PYTHONDONTWRITEBYTECODE 1
