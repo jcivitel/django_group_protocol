@@ -11,8 +11,7 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 PROJECT_NAME = os.path.basename(PROJECT_ROOT)
 
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
-
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 SECRET_KEY = config(
     "SECRET_KEY",
@@ -28,7 +27,6 @@ CSRF_TRUSTED_ORIGINS = config("CSRF_TRUSTED_ORIGINS", default="", cast=Csv())
 
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="[*]", cast=Csv())
 CORS_ORIGIN_ALLOW_ALL = True
-
 
 # Application definition
 
@@ -72,7 +70,7 @@ AUTO_LOGOUT = {
 
 ROOT_URLCONF = "django_group_protocol.urls"
 
-STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 WHITENOISE_USE_FINDERS = True
 WHITENOISE_MANIFEST_STRICT = False
 
@@ -93,7 +91,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "django_group_protocol.wsgi.application"
-
 
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
@@ -117,7 +114,6 @@ DATABASES = {
         "OPTIONS": {"init_command": "SET sql_mode='STRICT_TRANS_TABLES'"},
     },
 }
-
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
