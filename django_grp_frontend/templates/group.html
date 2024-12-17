@@ -18,17 +18,17 @@
                         <div class="form-floating mb-3 col-6">
                             {{ form.address }}
                             <label for="{{ form.address.auto_id }}"
-                                   class="form-label text-body-emphasis">address</label>
+                                   class="form-label text-body-emphasis">Address</label>
                         </div>
                         <div class="form-floating mb-3 col-6">
                             {{ form.postalcode }}
                             <label for="{{ form.postalcode.auto_id }}"
-                                   class="form-label text-body-emphasis">postalcode</label>
+                                   class="form-label text-body-emphasis">Postalcode</label>
                         </div>
                         <div class="form-floating mb-3 col-6">
                             {{ form.city }}
                             <label for="{{ form.city.auto_id }}"
-                                   class="form-label text-body-emphasis">city</label>
+                                   class="form-label text-body-emphasis">City</label>
                         </div>
                         <div class="card card-body mb-2">
                             <h6>Members</h6>
@@ -46,7 +46,7 @@
             <div class="card-footer">
                 <h7>Residents:</h7>
                 {% for resident in group_residents %}
-                    <a href="{% url 'resident' resident.id %}" class="text-body-emphasis">{{ resident }}, </a><br>
+                    <a href="{% url 'resident' resident.id %}" class="text-body-emphasis">{{ resident }},</a><br>
                 {% endfor %}
             </div>
         </div>
