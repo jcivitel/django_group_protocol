@@ -11,7 +11,7 @@
                     <div class="row">
                         <div class="form-floating mb-3 col-4">
                             {{ form.picture }}
-                            <label for="{{ form.picture.auto_id }}" class="form-label text-body-emphasis">Bild</label>
+                            <label for="{{ form.picture.auto_id }}" class="form-label text-body-emphasis">Picture</label>
                         </div>
                         <div class="col-9"></div>
                         <div class="form-floating mb-3 col-6">
@@ -22,21 +22,20 @@
                         <div class="form-floating mb-3 col-6">
                             {{ form.last_name }}
                             <label for="{{ form.last_name.auto_id }}"
-                                   class="form-label text-body-emphasis">Nachname</label>
+                                   class="form-label text-body-emphasis">Lastname</label>
                         </div>
                         <div class="form-floating mb-3 col-6">
                             {{ form.moved_in_since }}
-                            <label for="{{ form.moved_in_since.auto_id }}" class="form-label text-body-emphasis">Eingezogen
-                                seit</label>
+                            <label for="{{ form.moved_in_since.auto_id }}" class="form-label text-body-emphasis">Moved in since
+                                </label>
                         </div>
                         <div class="form-floating mb-3 col-6">
                             {{ form.moved_out_since }}
-                            <label for="{{ form.moved_out_since.auto_id }}" class="form-label text-body-emphasis">Ausgezogen
-                                seit</label>
+                            <label for="{{ form.moved_out_since.auto_id }}" class="form-label text-body-emphasis">Moved out since</label>
                         </div>
                         <div class="form-floating mb-3 col-6">
                             {{ form.group }}
-                            <label for="{{ form.group.auto_id }}" class="form-label text-body-emphasis">Gruppe</label>
+                            <label for="{{ form.group.auto_id }}" class="form-label text-body-emphasis">Group</label>
                             {% if form.group.value == None %}
 
                             {% else %}
