@@ -65,7 +65,14 @@ class GroupForm(forms.ModelForm):
 
     class Meta:
         model = Group
-        fields = ["name", "address", "postalcode", "city", "group_members"]
+        fields = [
+            "name",
+            "address",
+            "postalcode",
+            "city",
+            "group_members",
+            "pdf_template",
+        ]
         widgets = {
             "name": forms.TextInput(
                 attrs={"class": "form-control", "placeholder": "Name"}
@@ -79,6 +86,7 @@ class GroupForm(forms.ModelForm):
             "city": forms.TextInput(
                 attrs={"class": "form-control", "placeholder": "City"}
             ),
+            "pdf_template": forms.FileInput(attrs={"class": "form-control"}),
         }
 
 

@@ -17,4 +17,4 @@ def serve_file(request, path):
         raise Http404("File does not exist")
 
     # Serve the file
-    return FileResponse(open(file_path, 'rb'))
+    return FileResponse(open(file_path, "rb"))
