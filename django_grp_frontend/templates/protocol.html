@@ -156,6 +156,7 @@
         </div>
         <div class="card-footer">
             <button class="btn btn-primary" onclick="append_item()">Add Item</button>
+            <a href="{% url "export-protocol" protocol.id %}" target="_blank" class="btn btn-warning">View Export</a>
         </div>
     </div>
 {% endblock %}

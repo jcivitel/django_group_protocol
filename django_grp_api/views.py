@@ -72,7 +72,6 @@ class ItemValuesUpdateView(APIView):
             protocol = serializer.data.get("protocol")
             value = serializer.data.get("value")
             position = serializer.data.get("position")
-            print(item_id, name, value, position)
             if item_id == "":
                 item_id = None
 
