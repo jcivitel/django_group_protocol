@@ -39,7 +39,7 @@
                                 </div>
                             {% endfor %}
                         </div>
-                        {% if user.is_superuser %}
+                        {% if user.is_staff %}
                             <div class="card card-body mb-2">
                                 <div class="form-control">
                                     {{ form.pdf_template }}
