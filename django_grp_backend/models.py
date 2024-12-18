@@ -17,6 +17,7 @@ class Group(models.Model):
     postalcode = models.CharField(max_length=10)
     city = models.CharField(max_length=100)
     group_members = models.ManyToManyField(User, blank=True)
+    pdf_template = models.FileField(upload_to=f"docs/", blank=True)
 
     def get_full_address(self):
         return f"{self.address},\n{self.postalcode}, {self.city}"

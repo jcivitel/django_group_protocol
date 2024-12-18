@@ -163,4 +163,4 @@ cython_debug/
 /.idea
 /utils
 /media/images
-/django_grp_exporter/docs
+/media/docs

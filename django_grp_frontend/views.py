@@ -151,7 +151,10 @@ def group(request, id=None):
         template = loader.get_template("group.html")
         template_opts = dict()
         if request.method == "POST":
-            form = GroupForm(request.POST, instance=Group.objects.get(id=id))
+            form = GroupForm(
+                request.POST, request.FILES, instance=Group.objects.get(id=id)
+            )
+            print(request.FILES)
             if form.is_valid():
                 form.save()
                 messages.success(request, "Group has been updated")

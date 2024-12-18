@@ -10,7 +10,7 @@ from reportlab.platypus import Paragraph, Table, Spacer, SimpleDocTemplate, Page
 from reportlab.platypus import TableStyle
 
 
-def gen_export(protocol, template="django_grp_exporter/docs/letterhead_blank.pdf"):
+def gen_export(protocol, template="media/docs/letterhead_blank.pdf"):
     template_path = template
     template_reader = PdfReader(template_path)
 
@@ -73,7 +73,12 @@ def gen_export(protocol, template="django_grp_exporter/docs/letterhead_blank.pdf
         toc_entries.append(toc_entry)
 
         story.append(Paragraph(item.name, styles["Heading3"]))
-        story.append(Paragraph(f"{item.value or 'Keine Details'}".replace('\n', '<br/>'), styles["Normal"]))
+        story.append(
+            Paragraph(
+                f"{item.value or 'Keine Details'}".replace("\n", "<br/>"),
+                styles["Normal"],
+            )
+        )
         story.append(Spacer(1, 0.1 * inch))
 
     story[10:0] = (

@@ -7,7 +7,7 @@
                 <h1>Group Details</h1>
             </div>
             <div class="card-body">
-                <form method="post">
+                <form method="post" enctype="multipart/form-data">
                     {% csrf_token %}
                     <div class="row">
                         <div class="form-floating mb-3 col-6">
@@ -39,6 +39,13 @@
                                 </div>
                             {% endfor %}
                         </div>
+                        {% if user.is_superuser %}
+                            <div class="card card-body mb-2">
+                                <div class="form-control">
+                                    {{ form.pdf_template }}
+                                </div>
+                            </div>
+                        {% endif %}
                     </div>
                     <button type="submit" class="btn btn-primary">{{ action }}</button>
                 </form>
