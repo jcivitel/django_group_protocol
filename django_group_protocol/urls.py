@@ -8,6 +8,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("", include("django_grp_frontend.urls")),
     path("api/", include("django_grp_api.urls")),
+    path("export/", include("django_grp_exporter.urls")),
     re_path(
         r"^media/(?P<path>.*)$",
         serve,
