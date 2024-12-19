@@ -86,7 +86,7 @@ class GroupForm(forms.ModelForm):
             "city": forms.TextInput(
                 attrs={"class": "form-control", "placeholder": "City"}
             ),
-            "pdf_template": forms.FileInput(attrs={"class": "form-control"}),
+            "pdf_template": forms.ClearableFileInput(attrs={"class": "form-control"}),
         }
 
 
