@@ -112,7 +112,7 @@
 {% block content %}
     <div class="card">
         <div class="card-header">
-            <h2>Protokoll {{ protocol.protocol_date }}</h2>
+            <h2>Protokoll vom {{ protocol.protocol_date }}</h2>
         </div>
         <div class="card-body">
             <div class="row">
@@ -141,9 +141,16 @@
                             <li class="list-group-item row" id="li-{{ item.id }}"
                                 onchange="post_value({{ item.id }},document.getElementById('input-{{ item.id }}').value, document.getElementById('textarea-{{ item.id }}').value,0)">
                                 <div class="card card-body shadow-sm">
-                                    <input id="input-{{ item.id }}" class="form-control" value="{{ item.name }}">
+                                    <div class="form-floating">
+                                        <input id="input-{{ item.id }}" class="form-control" value="{{ item.name }}" placeholder="">
+                                        <label for="input-{{ item.id }}">Title</label>
+                                    </div>
+
+                                    <div class="form-floating">
                                     <textarea id="textarea-{{ item.id }}"
-                                              class="form-control auto-resize overflow-hidden">{{ item.value }}</textarea>
+                                              class="form-control auto-resize overflow-hidden" placeholder="">{{ item.value }}</textarea>
+                                        <label for="textarea-{{ item.id }}">Text</label>
+                                    </div>
                                 </div>
                                 <div class="btn col-1 float-end" onclick="delete_item({{ item.id }})"><i
                                         class="bi bi-trash3"></i> Delete

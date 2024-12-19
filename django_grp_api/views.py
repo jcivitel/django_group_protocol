@@ -1,3 +1,10 @@
+import json
+import os
+
+from PIL import Image
+from django.conf import settings
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -103,3 +110,41 @@ class ItemValuesUpdateView(APIView):
             return Response(
                 data={"message": "Item not found"}, status=status.HTTP_404_NOT_FOUND
             )
+
+
+@csrf_exempt
+def rotate_image(request):
+    if request.method == "POST":
+        data = json.loads(request.body)
+        direction = data.get("direction")
+        image_url = data.get("image_url")
+
+        image_path = os.path.join(
+            settings.MEDIA_ROOT, os.path.relpath(image_url, settings.MEDIA_URL)
+        )
+        if not os.path.exists(image_path):
+            return JsonResponse(
+                {"success": False, "error": "Image not found"}, status=404
+            )
+
+        try:
+            with Image.open(image_path) as img:
+                if direction == "left":
+                    img = img.rotate(90, expand=True)
+                elif direction == "right":
+                    img = img.rotate(-90, expand=True)
+                else:
+                    return JsonResponse(
+                        {"success": False, "error": "Invalid direction"}, status=400
+                    )
+                img.save(image_path)
+
+            new_image_url = f"{settings.MEDIA_URL}{os.path.relpath(image_path, settings.MEDIA_ROOT)}"
+            return JsonResponse({"success": True, "new_image_url": new_image_url})
+
+        except Exception as e:
+            return JsonResponse({"success": False, "error": str(e)}, status=500)
+
+    return JsonResponse(
+        {"success": False, "error": "Invalid request method"}, status=405
+    )

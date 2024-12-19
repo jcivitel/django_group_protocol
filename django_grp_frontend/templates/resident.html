@@ -1,4 +1,35 @@
 {% extends "base/base.html" %}
+
+{% block customjs %}
+    {% if form.picture.value %}
+        <script>
+            function rotateImage(direction) {
+                const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+                const imageUrl = "{{ form.picture.value.url }}";
+
+                fetch(`{% url "rotate_image" %}`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": csrftoken,
+                    },
+                    body: JSON.stringify({direction, image_url: imageUrl}),
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            const img = document.getElementById("profile-picture");
+                            img.src = data.new_image_url;
+                            location.reload();
+                        } else {
+                            alert("Error rotating image");
+                        }
+                    });
+            }
+        </script>
+    {% endif %}
+{% endblock %}
+
 {% block content %}
     <div class="container align-content-center">
         <div class="card col-10">
@@ -9,10 +40,24 @@
                 <form method="post" enctype="multipart/form-data">
                     {% csrf_token %}
                     <div class="row">
-                        <div class="mb-3 col-4">
+                        {% if form.picture.value %}
+                            <div class="col-2 mb-3">
+                                <img src="{{ form.picture.value.url }}" alt="profil" id="profile-picture"
+                                     class="img-fluid rounded mb-1" style="max-width: 100px; max-height: 100px;">
+                                <div class="rotation-buttons">
+                                    <a class="btn btn-sm btn-outline-secondary" onclick="rotateImage('left')"><i
+                                            class="bi bi-arrow-90deg-left"></i>
+                                    </a>
+                                    <a class="btn btn-sm btn-outline-secondary" onclick="rotateImage('right')"><i
+                                            class="bi bi-arrow-90deg-right"></i>
+                                    </a>
+                                </div>
+
+                            </div>
+                        {% endif %}
+                        <div {% if form.picture.value %}class="mb-3 col-10" {% else %}class="mb-3 col-12" {% endif %}>
                             {{ form.picture }}
                         </div>
-                        <div class="col-9"></div>
                         <div class="form-floating mb-3 col-6">
                             {{ form.first_name }}
                             <label for="{{ form.fist_name.auto_id }}"
@@ -25,12 +70,14 @@
                         </div>
                         <div class="form-floating mb-3 col-6">
                             {{ form.moved_in_since }}
-                            <label for="{{ form.moved_in_since.auto_id }}" class="form-label text-body-emphasis">Moved in since
-                                </label>
+                            <label for="{{ form.moved_in_since.auto_id }}" class="form-label text-body-emphasis">Moved
+                                in since
+                            </label>
                         </div>
                         <div class="form-floating mb-3 col-6">
                             {{ form.moved_out_since }}
-                            <label for="{{ form.moved_out_since.auto_id }}" class="form-label text-body-emphasis">Moved out since</label>
+                            <label for="{{ form.moved_out_since.auto_id }}" class="form-label text-body-emphasis">Moved
+                                out since</label>
                         </div>
                         <div class="form-floating mb-3 col-6">
                             {{ form.group }}
