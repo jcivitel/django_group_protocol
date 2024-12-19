@@ -9,6 +9,7 @@
 
             var calendar = new FullCalendar.Calendar(calendarEl, {
                 initialView: 'dayGridMonth',
+                height: 'auto',
                 locale: 'de',
                 firstDay: 1,
                 events: [
@@ -16,7 +17,8 @@
                         {
                             title: 'Nr: {{ protocol.id }}',
                             start: '{{ protocol.protocol_date|date:"c" }}',
-                            id: '{{ protocol.id }}'
+                            id: '{{ protocol.id }}',
+                            backgroundColor: '{{ protocol.group.color }}'
                         },
                     {% endfor %}
                 ],
@@ -45,7 +47,7 @@
     </div>
     <div class="container mt-3">
         <div class="row">
-            <div class="card shadow-lg col-12 col-md-5 me-md-4">
+            <div class="card shadow-lg col-12 col-md-5 me-md-4 mb-3">
                 <div class="card-header mt-2">
                     <div>Last Protocols:</div>
                 </div>
@@ -62,7 +64,7 @@
                         Protocol</a>
                 </div>
             </div>
-            <div class="card shadow-lg col-12 col-md-5">
+            <div class="card shadow-lg col-12 col-md-5 mb-3">
                 <div class="card-header mt-2">
                     <div>Current Residents:</div>
                 </div>
@@ -71,8 +73,9 @@
                         {% for resident in residents %}
                             <a href="{% url "resident" resident.id %}"
                                class="link-body-emphasis link-underline-opacity-0">
-                                <div class="row mb-3 align-items-center">
-                                    <div class="col-auto">
+                                <div class="row mb-3 align-items-center rounded-5"
+                                     style="background:{{ resident.group.color }}">
+                                    <div class="col-auto m-2">
                                         {% if resident.picture %}
                                             <img src="{{ resident.picture.url }}" alt="profil"
                                                  class="img-fluid rounded" style="max-width: 100px; max-height: 100px;">
@@ -83,9 +86,9 @@
                                             </div>
                                         {% endif %}
                                     </div>
-                                    <div class="col">
+                                    <div class="col-auto m-2">
                                         <h5 class="mb-1">{{ resident.get_full_name }}</h5>
-                                        <p class="mb-0 text-muted">Moved in since: {{ resident.moved_in_since }}</p>
+                                        <p class="mb-0 text-body-emphasis"><i class="bi bi-info-circle"></i> Moved in since: {{ resident.moved_in_since }}</p>
                                     </div>
                                 </div>
                             </a>

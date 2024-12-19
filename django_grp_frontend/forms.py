@@ -70,6 +70,7 @@ class GroupForm(forms.ModelForm):
             "address",
             "postalcode",
             "city",
+            "color",
             "group_members",
             "pdf_template",
         ]
@@ -85,6 +86,13 @@ class GroupForm(forms.ModelForm):
             ),
             "city": forms.TextInput(
                 attrs={"class": "form-control", "placeholder": "City"}
+            ),
+            "color": forms.TextInput(
+                attrs={
+                    "class": "form-control form-control-color",
+                    "type": "color",
+                    "placeholder": "Color",
+                }
             ),
             "pdf_template": forms.ClearableFileInput(attrs={"class": "form-control"}),
         }

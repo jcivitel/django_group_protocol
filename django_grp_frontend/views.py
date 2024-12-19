@@ -44,7 +44,9 @@ def dashboard(request):
 
     today = now().date()
 
-    template_opts["residents"] = Resident.objects.filter(moved_out_since__isnull=True)
+    template_opts["residents"] = Resident.objects.filter(
+        moved_out_since__isnull=True
+    ).order_by("group")
     template_opts["protocols"] = Protocol.objects.filter(
         protocol_date__year=today.year, protocol_date__month=today.month
     )

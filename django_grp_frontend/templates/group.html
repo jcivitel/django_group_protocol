@@ -30,6 +30,9 @@
                             <label for="{{ form.city.auto_id }}"
                                    class="form-label text-body-emphasis">City</label>
                         </div>
+                        <div class="form-floating mb-3 col-6">
+                            {{ form.color }}
+                        </div>
                         <div class="card card-body mb-2">
                             <h6>Members</h6>
                             {% for member in form.group_members %}

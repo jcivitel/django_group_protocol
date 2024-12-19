@@ -1,4 +1,5 @@
 import os
+import random
 import uuid
 
 from PIL import Image
@@ -16,6 +17,7 @@ class Group(models.Model):
     address = models.CharField(max_length=100)
     postalcode = models.CharField(max_length=10)
     city = models.CharField(max_length=100)
+    color = models.CharField(max_length=9, default="#000000")
     group_members = models.ManyToManyField(User, blank=True)
     pdf_template = models.FileField(upload_to=f"docs/", blank=True)
 
