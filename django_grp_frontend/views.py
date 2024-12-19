@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.shortcuts import render, redirect
 from django.template import loader
@@ -183,4 +184,12 @@ def add_group(request):
     template_opts["form"] = GroupForm()
     template_opts["action"] = "Add"
 
+    return HttpResponse(template.render(template_opts, request))
+
+
+@login_required
+def staff(request):
+    template = loader.get_template("staff.html")
+    template_opts = dict()
+    template_opts["members"] = User.objects.all()
     return HttpResponse(template.render(template_opts, request))
