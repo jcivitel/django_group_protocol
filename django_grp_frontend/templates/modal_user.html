@@ -1,0 +1,54 @@
+{% block content %}
+    <div class="modal-header">
+        <h5 class="modal-title text-body-emphasis" id="modal-title">{{ content_title_main }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    </div>
+    <div class="modal-body">
+        <form method="post" {% if user_id %}action="{% url 'update_user' user_id %}"
+              {% else %}action="{% url 'update_user' %}"{% endif %} id="api-form" enctype="multipart/form-data">
+            <div class="container">
+                <div class="row row-cols-2 g-3">
+                    {% csrf_token %}
+                    {% if userform.username %}
+                        <div class="form-floating">
+                            {{ userform.username }}
+                            <label for="{{ userform.username.auto_id }}" class="text-body-emphasis">Username</label>
+                        </div>
+                    {% endif %}
+                    {% if userform.password %}
+                        <div class="form-floating">
+                            {{ userform.password }}
+                            <label for="{{ userform.password.auto_id }}" class="text-body-emphasis">Password</label>
+                        </div>
+                    {% endif %}
+                    <div class="form-floating">
+                        {{ userform.first_name }}
+                        <span class="position-absolute top-0 start-50 translate-middle badge rounded-pill bg-warning">
+                            optional
+                        </span>
+                        <label for="{{ userform.first_name.auto_id }}" class="text-body-emphasis">First Name</label>
+                    </div>
+                    <div class="form-floating">
+                        {{ userform.last_name }}
+                        <span class="position-absolute top-0 start-50 translate-middle badge rounded-pill bg-warning">
+                            optional
+                        </span>
+                        <label for="{{ userform.last_name.auto_id }}" class="text-body-emphasis">Last Name</label>
+                    </div>
+                    <div class="form-floating">
+                        {{ userform.email }}
+                        <span class="position-absolute top-0 start-50 translate-middle badge rounded-pill bg-warning">
+                            optional
+                        </span>
+                        <label for="{{ userform.email.auto_id }}" class="text-body-emphasis">Email</label>
+                    </div>
+                    <div class="form-check-reverse form-switch align-items-center align-content-center">
+                        {{ userform.is_staff }}
+                        <label for="{{ userform.is_staff.auto_id }}" class="text-body-emphasis">Staff member?</label>
+                    </div>
+                    <button type="submit" class="form-control btn btn-primary">Save</button>
+                </div>
+            </div>
+        </form>
+    </div>
+{% endblock %}

@@ -14,7 +14,14 @@ from django_grp_backend.models import (
     ProtocolItem,
     ProtocolPresence,
 )
-from django_grp_frontend.forms import ResidentForm, ProfileForm, GroupForm, ProtocolForm
+from django_grp_frontend.forms import (
+    ResidentForm,
+    ProfileForm,
+    GroupForm,
+    ProtocolForm,
+    UpdateUserForm,
+    AddUserForm,
+)
 
 
 def login_view(request):
@@ -192,4 +199,34 @@ def staff(request):
     template = loader.get_template("staff.html")
     template_opts = dict()
     template_opts["members"] = User.objects.all()
+    return HttpResponse(template.render(template_opts, request))
+
+
+@login_required
+def UpdateUser(request, user_id=None):
+    template = loader.get_template("modal_user.html")
+    template_opts = dict()
+    if user_id is not None:
+        template_opts["content_title_main"] = "Update User"
+        template_opts["user_id"] = user_id
+        if request.method == "POST":
+            form = UpdateUserForm(request.POST, instance=User.objects.get(id=user_id))
+            if form.is_valid():
+                form.save()
+                messages.success(request, "User has been updated")
+                return redirect("staff")
+
+        template_opts["userform"] = UpdateUserForm(
+            instance=User.objects.get(id=user_id)
+        )
+    else:
+        template_opts["content_title_main"] = "Add User"
+        if request.method == "POST":
+            form = AddUserForm(request.POST)
+            if form.is_valid():
+                form.save()
+                messages.success(request, "User has been added")
+                return redirect("staff")
+        template_opts["userform"] = AddUserForm()
+
     return HttpResponse(template.render(template_opts, request))

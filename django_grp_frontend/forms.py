@@ -111,3 +111,44 @@ class ProtocolForm(forms.ModelForm):
             ),
             "group": forms.Select(attrs={"class": "form-select"}),
         }
+
+
+class UpdateUserForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = [
+            "first_name",
+            "last_name",
+            "email",
+            "is_staff",
+        ]
+        widgets = {
+            "first_name": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "First Name"}
+            ),
+            "last_name": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "Last Name"}
+            ),
+            "email": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "Email"}
+            ),
+            "is_staff": forms.CheckboxInput(
+                attrs={"class": "form-check-input", "role": "switch"}
+            ),
+        }
+
+
+class AddUserForm(UpdateUserForm):
+    class Meta(UpdateUserForm.Meta):
+        fields = UpdateUserForm.Meta.fields + [
+            "username",
+            "password",
+        ]
+        widgets = UpdateUserForm.Meta.widgets | {
+            "username": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "Username"}
+            ),
+            "password": forms.PasswordInput(
+                attrs={"class": "form-control", "placeholder": "Password"}
+            ),
+        }

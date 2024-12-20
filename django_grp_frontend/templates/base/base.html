@@ -10,9 +10,12 @@
 
     <script src="{% static 'bootstrap/js/bootstrap.bundle.min.js' %}" type="text/javascript"></script>
     <script src="{% static 'jquery/jquery-3.7.1.min.js' %}" type="text/javascript"></script>
+    <script src="{% static 'modal/modal.js' %}" type="text/javascript"></script>
     {{ redirect_to_login_immediately }}
+
     {% block customjs %}
     {% endblock %}
+
     {% block customcss %}
     {% endblock %}
 
@@ -68,5 +71,16 @@
         setDarkMode(e.matches);
     });
 </script>
+{% block modal %}
+    <!-- Modal -->
+    <div class="modal modal-lg fade" id="modal" tabindex="-1" role="dialog" aria-labelledby="modal"
+         aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div id="modal-content" class="modal-content">
+
+            </div>
+        </div>
+    </div>
+{% endblock %}
 </body>
 </html>

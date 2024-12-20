@@ -60,7 +60,8 @@
                     {% endif %}
                 </div>
                 <div class="card-footer">
-                    <a href="{% url "add_protocol" %}" class="btn btn-primary"><i class="bi bi-journal-plus"></i> New
+                    <a href="{% url "add_protocol" %}" class="btn btn-primary" data-bs-toggle="modal"
+                       data-bs-target="#modal"><i class="bi bi-journal-plus"></i> New
                         Protocol</a>
                 </div>
             </div>
@@ -88,7 +89,8 @@
                                     </div>
                                     <div class="col-auto m-2">
                                         <h5 class="mb-1">{{ resident.get_full_name }}</h5>
-                                        <p class="mb-0 text-body-emphasis"><i class="bi bi-info-circle"></i> Moved in since: {{ resident.moved_in_since }}</p>
+                                        <p class="mb-0 text-body-emphasis"><i class="bi bi-info-circle"></i> Moved in
+                                            since: {{ resident.moved_in_since }}</p>
                                     </div>
                                 </div>
                             </a>
