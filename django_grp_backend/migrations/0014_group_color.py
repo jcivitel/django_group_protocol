@@ -13,6 +13,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="group",
             name="color",
-            field=models.CharField(default="#000000", max_length=9),
+            field=models.CharField(default="#ffffff", max_length=9),
         ),
     ]
