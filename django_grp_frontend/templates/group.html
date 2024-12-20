@@ -32,8 +32,10 @@
                         </div>
                         <div class="form-floating mb-3 col-6">
                             {{ form.color }}
+                            <label for="{{ form.color.auto_id }}"
+                                   class="form-label text-body-emphasis">Group Color</label>
                         </div>
-                        <div class="card card-body mb-2">
+                        <div class="card card-body mb-3">
                             <h6>Members</h6>
                             {% for member in form.group_members %}
                                 <div class="form-check form-switch">
@@ -43,10 +45,9 @@
                             {% endfor %}
                         </div>
                         {% if user.is_staff %}
-                            <div class="card card-body mb-2">
-                                <div class="form-control">
-                                    {{ form.pdf_template }}
-                                </div>
+                            <div class="form-control mb-3">
+                                <h6 class="form-label text-body-emphasis">PDF Template</h6><br>
+                                {{ form.pdf_template }}
                             </div>
                         {% endif %}
                     </div>
