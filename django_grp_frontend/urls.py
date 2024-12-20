@@ -17,4 +17,6 @@ urlpatterns = [
     path("add_group/", views.add_group, name="add_group"),
     path("profile/", views.profile, name="profile"),
     path("staff/", views.staff, name="staff"),
+    path("staff/update-user/", views.UpdateUser, name="update_user"),
+    path("staff/update-user/<int:user_id>/", views.UpdateUser, name="update_user"),
 ]
