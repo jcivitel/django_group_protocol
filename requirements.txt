@@ -14,7 +14,7 @@ mypy-extensions==1.0.0
 mysqlclient==2.2.6
 packaging==24.2
 pathspec==0.12.1
-pillow==11.0.0
+pillow==11.1.0
 platformdirs==4.3.6
 python-decouple==3.8
 redis==5.2.1
