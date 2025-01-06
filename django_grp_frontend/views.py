@@ -7,6 +7,7 @@ from django.shortcuts import render, redirect
 from django.template import loader
 from django.utils.timezone import now
 
+from django_grp_backend.functions import group_required
 from django_grp_backend.models import (
     Resident,
     Protocol,
@@ -195,6 +196,7 @@ def add_group(request):
 
 
 @login_required
+@group_required("staff")
 def staff(request):
     template = loader.get_template("staff.html")
     template_opts = dict()
@@ -203,6 +205,7 @@ def staff(request):
 
 
 @login_required
+@group_required("staff")
 def UpdateUser(request, user_id=None):
     template = loader.get_template("modal_user.html")
     template_opts = dict()
