@@ -3,7 +3,7 @@ async-timeout==5.0.1
 black==24.10.0
 click==8.1.8
 colorama==0.4.6
-Django==5.1.4
+Django==5.1.5
 django-auto-logout==0.5.1
 django-cors-headers==4.6.0
 django-redis==5.4.0
