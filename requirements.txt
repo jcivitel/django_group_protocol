@@ -1,6 +1,7 @@
 asgiref==3.8.1
 async-timeout==5.0.1
 black==24.10.0
+chardet==5.2.0
 click==8.1.8
 colorama==0.4.6
 Django==5.1.5
@@ -16,13 +17,13 @@ packaging==24.2
 pathspec==0.12.1
 pillow==11.1.0
 platformdirs==4.3.6
+PyPDF2==3.0.1
 python-decouple==3.8
 redis==5.2.1
+reportlab==4.2.5
 sqlparse==0.5.3
 tomli==2.2.1
 typing_extensions==4.12.2
 tzdata==2024.2
 whitenoise==6.8.2
-reportlab
-PyPDF2
 uwsgi==2.0.28 ; sys_platform == "linux"
