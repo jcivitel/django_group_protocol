@@ -17,7 +17,7 @@ packaging==24.2
 pathspec==0.12.1
 pillow==11.1.0
 platformdirs==4.3.6
-PyPDF2==3.0.1
+pypdf
 python-decouple==3.8
 redis==5.2.1
 reportlab==4.2.5
