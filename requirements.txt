@@ -20,7 +20,7 @@ platformdirs==4.3.6
 pypdf
 python-decouple==3.8
 redis==5.2.1
-reportlab==4.3.0
+reportlab==4.3.1
 sqlparse==0.5.3
 tomli==2.2.1
 typing_extensions==4.12.2
