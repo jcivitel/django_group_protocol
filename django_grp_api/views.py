@@ -27,8 +27,11 @@ from .serializers import (
 
 class ProtocolViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
-    queryset = Protocol.objects.all()
     serializer_class = ProtocolSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        return Protocol.objects.filter(group__group_members=user)
 
     def perform_create(self, serializer):
         serializer.save()
