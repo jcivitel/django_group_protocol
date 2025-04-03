@@ -44,7 +44,6 @@ pyRFC3339==2.0.1
 python-dateutil==2.9.0.post0
 python-decouple==3.8
 pytz==2024.2
-pywin32
 redis==5.2.1
 reportlab==4.3.1
 requests==2.32.3
