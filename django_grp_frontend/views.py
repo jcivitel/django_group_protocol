@@ -53,11 +53,22 @@ def dashboard(request):
 
     today = now().date()
 
-    template_opts["residents"] = Resident.objects.filter(
-        moved_out_since__isnull=True
-    ).order_by("group")
-    template_opts["protocols"] = Protocol.objects.filter(
-        protocol_date__year=today.year, protocol_date__month=today.month
+    template_opts["residents"] = (
+        Resident.objects.filter(moved_out_since__isnull=True).order_by("group")
+        if request.user.is_staff
+        else Resident.objects.filter(moved_out_since__isnull=True)
+        .filter(group__group_members=request.user)
+        .order_by("group")
+    )
+
+    template_opts["protocols"] = (
+        Protocol.objects.filter(
+            protocol_date__year=today.year, protocol_date__month=today.month
+        )
+        if request.user.is_staff
+        else Protocol.objects.filter(
+            protocol_date__year=today.year, protocol_date__month=today.month
+        ).filter(group__group_members=request.user)
     )
 
     return HttpResponse(template.render(template_opts, request))
@@ -83,7 +94,11 @@ def resident(request, id=None):
     if id is None:
         template = loader.get_template("list_residents.html")
         template_opts = dict()
-        template_opts["residents"] = Resident.objects.all()
+        template_opts["residents"] = (
+            Resident.objects.all()
+            if request.user.is_staff
+            else Resident.objects.filter(group__group_members=request.user)
+        )
     else:
         template = loader.get_template("resident.html")
         template_opts = dict()
@@ -124,7 +139,11 @@ def protocol(request, id=None):
     if id is None:
         template = loader.get_template("list_protocols.html")
         template_opts = dict()
-        template_opts["protocols"] = Protocol.objects.all()
+        template_opts["protocols"] = (
+            Protocol.objects.all()
+            if request.user.is_staff
+            else Protocol.objects.filter(group__group_members=request.user)
+        )
     else:
         template = loader.get_template("protocol.html")
         template_opts = dict()
@@ -157,7 +176,11 @@ def group(request, id=None):
     if id is None:
         template = loader.get_template("list_groups.html")
         template_opts = dict()
-        template_opts["groups"] = Group.objects.all()
+        template_opts["groups"] = (
+            Group.objects.all()
+            if request.user.is_staff
+            else Group.objects.filter(group_members=request.user)
+        )
     else:
         template = loader.get_template("group.html")
         template_opts = dict()
