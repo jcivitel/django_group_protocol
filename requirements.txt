@@ -28,7 +28,7 @@ django-xforwardedfor-middleware==2.0
 djangorestframework==3.16.0
 idna==3.10
 josepy==1.14.0
-kombu==5.4.2
+kombu==5.5.2
 mypy-extensions==1.0.0
 mysqlclient==2.2.7
 packaging==24.2
