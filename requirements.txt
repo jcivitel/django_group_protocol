@@ -34,7 +34,7 @@ mysqlclient==2.2.7
 packaging==24.2
 parsedatetime==2.6
 pathspec==0.12.1
-pillow==11.1.0
+pillow==11.2.1
 platformdirs==4.3.7
 prompt_toolkit==3.0.50
 pycparser==2.22
