@@ -31,7 +31,7 @@ josepy==2.0.0
 kombu==5.5.3
 mypy-extensions==1.0.0
 mysqlclient==2.2.7
-packaging==24.2
+packaging==25.0
 parsedatetime==2.6
 pathspec==0.12.1
 pillow==11.2.1
