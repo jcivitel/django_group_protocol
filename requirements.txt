@@ -6,7 +6,7 @@ billiard==4.2.1
 black==25.1.0
 celery==5.5.1
 certbot==4.0.0
-certifi==2025.1.31
+certifi==2025.4.26
 cffi==1.17.1
 chardet==5.2.0
 charset-normalizer==3.4.1
