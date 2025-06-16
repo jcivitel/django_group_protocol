@@ -1,4 +1,4 @@
-acme==4.0.0
+acme==4.1.1
 amqp==5.3.1
 asgiref==3.8.1
 async-timeout==5.0.1
