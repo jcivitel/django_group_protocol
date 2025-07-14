@@ -39,7 +39,7 @@ platformdirs==4.3.8
 prompt_toolkit==3.0.51
 pycparser==2.22
 pyOpenSSL==25.1.0
-pypdf==5.7.0
+pypdf==5.8.0
 pyRFC3339==2.0.1
 python-dateutil==2.9.0.post0
 python-decouple==3.8
