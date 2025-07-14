@@ -1,6 +1,6 @@
 acme==4.1.1
 amqp==5.3.1
-asgiref==3.9.0
+asgiref==3.9.1
 async-timeout==5.0.1
 billiard==4.2.1
 black==25.1.0
