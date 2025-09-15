@@ -37,7 +37,7 @@ pathspec==0.12.1
 pillow==11.3.0
 platformdirs==4.4.0
 prompt_toolkit==3.0.52
-pycparser==2.22
+pycparser==2.23
 pyOpenSSL==25.2.0
 pypdf==6.0.0
 pyRFC3339==2.1.0
