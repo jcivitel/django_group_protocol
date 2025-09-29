@@ -2,7 +2,7 @@ acme==4.2.0
 amqp==5.3.1
 asgiref==3.9.1
 async-timeout==5.0.1
-billiard==4.2.1
+billiard==4.2.2
 black==25.9.0
 celery==5.5.3
 certbot==4.2.0
