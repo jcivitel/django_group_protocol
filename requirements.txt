@@ -35,7 +35,7 @@ packaging==25.0
 parsedatetime==2.6
 pathspec==0.12.1
 pillow==11.3.0
-platformdirs==4.4.0
+platformdirs==4.5.0
 prompt_toolkit==3.0.52
 pycparser==2.23
 pyOpenSSL==25.3.0
