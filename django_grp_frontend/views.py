@@ -54,8 +54,15 @@ def dashboard(request):
     template = loader.get_template("dashboard.html")
     template_opts = dict()
 
-    template_opts["residents"] = Resident.objects.active().for_user(request.user).order_by("group")
-    template_opts["protocols"] = Protocol.objects.current_month().for_user(request.user)
+    template_opts["residents"] = (
+        Resident.objects.for_user(request.user)
+        .active()
+        .order_by("group")
+    )
+    template_opts["protocols"] = (
+        Protocol.objects.for_user(request.user)
+        .current_month()
+    )
 
     return HttpResponse(template.render(template_opts, request))
 
