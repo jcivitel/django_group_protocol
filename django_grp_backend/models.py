@@ -12,23 +12,25 @@ from django.utils.deconstruct import deconstructible
 from django_grp_backend.functions import validate_image
 
 
-class GroupManager(models.Manager):
-    """Custom manager for Group model with user-based filtering."""
+# ============ CUSTOM QUERYSETS ============
+
+class GroupQuerySet(models.QuerySet):
+    """Custom QuerySet for Group model."""
     
     def for_user(self, user):
         """Return groups accessible to the user."""
         if user.is_staff:
-            return self.all()
+            return self
         return self.filter(group_members=user)
 
 
-class ResidentManager(models.Manager):
-    """Custom manager for Resident model with user-based filtering."""
+class ResidentQuerySet(models.QuerySet):
+    """Custom QuerySet for Resident model."""
     
     def for_user(self, user):
         """Return residents accessible to the user."""
         if user.is_staff:
-            return self.all()
+            return self
         return self.filter(group__group_members=user)
     
     def active(self):
@@ -36,13 +38,13 @@ class ResidentManager(models.Manager):
         return self.filter(moved_out_since__isnull=True)
 
 
-class ProtocolManager(models.Manager):
-    """Custom manager for Protocol model with user-based filtering."""
+class ProtocolQuerySet(models.QuerySet):
+    """Custom QuerySet for Protocol model."""
     
     def for_user(self, user):
         """Return protocols accessible to the user."""
         if user.is_staff:
-            return self.all()
+            return self
         return self.filter(group__group_members=user)
     
     def current_month(self):
@@ -50,6 +52,44 @@ class ProtocolManager(models.Manager):
         from django.utils.timezone import now
         today = now().date()
         return self.filter(protocol_date__year=today.year, protocol_date__month=today.month)
+
+
+# ============ CUSTOM MANAGERS ============
+
+class GroupManager(models.Manager):
+    """Custom manager for Group model."""
+    
+    def get_queryset(self):
+        return GroupQuerySet(self.model, using=self._db)
+    
+    def for_user(self, user):
+        return self.get_queryset().for_user(user)
+
+
+class ResidentManager(models.Manager):
+    """Custom manager for Resident model."""
+    
+    def get_queryset(self):
+        return ResidentQuerySet(self.model, using=self._db)
+    
+    def for_user(self, user):
+        return self.get_queryset().for_user(user)
+    
+    def active(self):
+        return self.get_queryset().active()
+
+
+class ProtocolManager(models.Manager):
+    """Custom manager for Protocol model."""
+    
+    def get_queryset(self):
+        return ProtocolQuerySet(self.model, using=self._db)
+    
+    def for_user(self, user):
+        return self.get_queryset().for_user(user)
+    
+    def current_month(self):
+        return self.get_queryset().current_month()
 
 
 class Group(models.Model):
