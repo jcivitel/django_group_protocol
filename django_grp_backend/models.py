@@ -12,6 +12,46 @@ from django.utils.deconstruct import deconstructible
 from django_grp_backend.functions import validate_image
 
 
+class GroupManager(models.Manager):
+    """Custom manager for Group model with user-based filtering."""
+    
+    def for_user(self, user):
+        """Return groups accessible to the user."""
+        if user.is_staff:
+            return self.all()
+        return self.filter(group_members=user)
+
+
+class ResidentManager(models.Manager):
+    """Custom manager for Resident model with user-based filtering."""
+    
+    def for_user(self, user):
+        """Return residents accessible to the user."""
+        if user.is_staff:
+            return self.all()
+        return self.filter(group__group_members=user)
+    
+    def active(self):
+        """Return only active residents (not moved out)."""
+        return self.filter(moved_out_since__isnull=True)
+
+
+class ProtocolManager(models.Manager):
+    """Custom manager for Protocol model with user-based filtering."""
+    
+    def for_user(self, user):
+        """Return protocols accessible to the user."""
+        if user.is_staff:
+            return self.all()
+        return self.filter(group__group_members=user)
+    
+    def current_month(self):
+        """Return protocols from current month."""
+        from django.utils.timezone import now
+        today = now().date()
+        return self.filter(protocol_date__year=today.year, protocol_date__month=today.month)
+
+
 class Group(models.Model):
     name = models.CharField(max_length=100)
     address = models.CharField(max_length=100)
@@ -20,6 +60,8 @@ class Group(models.Model):
     color = models.CharField(max_length=9, default="#ffffff")
     group_members = models.ManyToManyField(User, blank=True)
     pdf_template = models.FileField(upload_to=f"docs/", blank=True)
+    
+    objects = GroupManager()
 
     def get_full_address(self):
         return f"{self.address},\n{self.postalcode}, {self.city}"
@@ -48,6 +90,8 @@ class Resident(models.Model):
     moved_in_since = models.DateField()
     moved_out_since = models.DateField(default=None, null=True, blank=True)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
+    
+    objects = ResidentManager()
 
     def get_full_name(self):
         return f"{self.first_name} {self.last_name}"
@@ -71,6 +115,8 @@ class Protocol(models.Model):
     last_updated = models.DateField(auto_now=True)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
     exported = models.BooleanField(default=False)
+    
+    objects = ProtocolManager()
 
     def __str__(self):
         return f"{self.group.name} - {self.protocol_date}"

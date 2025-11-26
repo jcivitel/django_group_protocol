@@ -1,64 +1,141 @@
 {% load static %}
-<nav class="navbar navbar-expand-lg navbar-light bg-light">
+<nav class="navbar navbar-expand-lg sticky-top">
     <div class="container-fluid">
-        <a class="navbar-brand" href="{% url "dashboard" %}"> DGP </a>
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav">
-                <li class="nav-item">
-                    <a class="nav-link active" aria-current="page" href="{% url "dashboard" %}"> <i
-                            class="bi bi-house-door"></i> Dashboard</a>
-                </li>
-                <li class="vr m-2"></li>
-                <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" aria-current="page" href="#" role="button"
-                       data-bs-toggle="dropdown" aria-expanded="false"> <i class="bi bi-journals"></i> Protocols</a>
-                    <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="{% url "protocol" %}">All Protocols</a></li>
-                        <li><a class="dropdown-item" href="{% url "add_protocol" %}" data-bs-toggle="modal"
-                               data-bs-target="#modal">Add Protocols</a></li>
-                    </ul>
-                </li>
-                <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" aria-current="page" href="#" role="button"
-                       data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-people-fill"></i> Residents</a>
-                    <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="{% url "resident" %}">All Residents</a></li>
-                        <li><a class="dropdown-item" href="{% url "add_resident" %}">Add Residents</a></li>
-                    </ul>
-                </li>
-                <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" aria-current="page" href="#" role="button"
-                       data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-person-rolodex"></i> Groups</a>
-                    <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="{% url "group" %}">All Groups</a></li>
-                        <li><a class="dropdown-item" href="{% url "add_group" %}">Add Group</a></li>
-                    </ul>
-                </li>
-                <li class="vr m-2"></li>
-                {% if  user.is_staff %}
-                    <li class="nav-item">
-                        <a class="nav-link" aria-current="page" href="{% url "staff" %}"><i
-                                class="bi bi-person-fill-gear"></i> Staff</a>
-                    </li>
-                    {% if user.is_superuser %}
-                        <li class="nav-item">
-                            <a class="nav-link" aria-current="page" href="/admin/"><i
-                                    class="bi bi-building-fill-gear"></i> Company Settings</a>
-                        </li>
-                    {% endif %}
-                    <li class="vr m-2"></li>
-                {% endif %}
-                <li class="nav-item">
-                    <a class="nav-link" aria-current="page" href="{% url "profile" %}"><i
-                            class="bi bi-person-bounding-box"></i> My Profile</a>
-                </li>
-            </ul>
-        </div>
-        <button class="navbar-toggler text-bg-light float-end" type="button" data-bs-toggle="collapse"
-                data-bs-target="#navbarNav"
+        <!-- Brand -->
+        <a class="navbar-brand" href="{% url 'dashboard' %}">
+            <i class="bi bi-file-text"></i> Protocol Pro
+        </a>
+        
+        <!-- Toggle Button for Mobile -->
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
                 aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
-        <a class="navbar-btn btn btn-outline-warning float-end" href="{% url "logout" %}">Logout</a>
+        
+        <!-- Navbar Content -->
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ms-auto">
+                <!-- Dashboard -->
+                {% url 'dashboard' as dashboard_url %}
+                <li class="nav-item">
+                    <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}"
+                       href="{{ dashboard_url }}">
+                        <i class="bi bi-house-door-fill"></i> Dashboard
+                    </a>
+                </li>
+                
+                <!-- Protocols Dropdown -->
+                {% url 'protocol' as protocol_url %}
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle {% if 'protocol' in request.resolver_match.url_name %}active{% endif %}"
+                       href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-journal-text"></i> Protokolle
+                    </a>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="{{ protocol_url }}">
+                            <i class="bi bi-list"></i> Alle Protokolle
+                        </a></li>
+                        <li><a class="dropdown-item" href="{% url 'add_protocol' %}" data-bs-toggle="modal"
+                               data-bs-target="#modal">
+                            <i class="bi bi-plus-circle"></i> Neues Protokoll
+                        </a></li>
+                    </ul>
+                </li>
+                
+                <!-- Residents Dropdown -->
+                {% url 'resident' as resident_url %}
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle {% if 'resident' in request.resolver_match.url_name %}active{% endif %}"
+                       href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-people-fill"></i> Bewohner
+                    </a>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="{{ resident_url }}">
+                            <i class="bi bi-list"></i> Alle Bewohner
+                        </a></li>
+                        <li><a class="dropdown-item" href="{% url 'add_resident' %}">
+                            <i class="bi bi-plus-circle"></i> Bewohner hinzufügen
+                        </a></li>
+                    </ul>
+                </li>
+                
+                <!-- Groups Dropdown -->
+                {% url 'group' as group_url %}
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle {% if 'group' in request.resolver_match.url_name %}active{% endif %}"
+                       href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-building"></i> Gruppen
+                    </a>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="{{ group_url }}">
+                            <i class="bi bi-list"></i> Alle Gruppen
+                        </a></li>
+                        <li><a class="dropdown-item" href="{% url 'add_group' %}">
+                            <i class="bi bi-plus-circle"></i> Gruppe hinzufügen
+                        </a></li>
+                    </ul>
+                </li>
+                
+                <!-- Admin Section -->
+                {% if request.user.is_staff %}
+                <li class="nav-item">
+                    <hr class="dropdown-divider my-2">
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.resolver_match.url_name == 'staff' %}active{% endif %}"
+                       href="{% url 'staff' %}">
+                        <i class="bi bi-person-gear"></i> Verwaltung
+                    </a>
+                </li>
+                {% if request.user.is_superuser %}
+                <li class="nav-item">
+                    <a class="nav-link" href="/admin/" target="_blank">
+                        <i class="bi bi-gear"></i> Einstellungen
+                    </a>
+                </li>
+                {% endif %}
+                {% endif %}
+                
+                <!-- User Menu -->
+                <li class="nav-item">
+                    <hr class="dropdown-divider my-2">
+                </li>
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown"
+                       aria-expanded="false">
+                        <i class="bi bi-person-circle"></i> 
+                        {{ request.user.get_full_name|default:request.user.username }}
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="{% url 'profile' %}">
+                            <i class="bi bi-person"></i> Profil
+                        </a></li>
+                        <li><a class="dropdown-item" href="javascript:window.toggleDarkMode()">
+                            <i class="bi bi-moon-stars"></i> <span id="theme-label">Dunkler Modus</span>
+                        </a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger" href="{% url 'logout' %}">
+                            <i class="bi bi-box-arrow-right"></i> Logout
+                        </a></li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
     </div>
 </nav>
+
+<script>
+    // Update theme label based on current mode
+    function updateThemeLabel() {
+        const isDark = document.body.classList.contains('dark-mode');
+        const label = document.getElementById('theme-label');
+        if (label) {
+            label.textContent = isDark ? 'Heller Modus' : 'Dunkler Modus';
+        }
+    }
+    
+    // Update label on page load and when theme changes
+    document.addEventListener('DOMContentLoaded', updateThemeLabel);
+    const observer = new MutationObserver(() => updateThemeLabel());
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+</script>

@@ -12,18 +12,27 @@
                 height: 'auto',
                 locale: 'de',
                 firstDay: 1,
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'dayGridMonth,listMonth'
+                },
                 events: [
                     {% for protocol in protocols %}
                         {
-                            title: 'Nr: {{ protocol.id }}',
+                            title: 'Protokoll #{{ protocol.id }}',
                             start: '{{ protocol.protocol_date|date:"c" }}',
                             id: '{{ protocol.id }}',
-                            backgroundColor: '{{ protocol.group.color }}'
+                            backgroundColor: '{{ protocol.group.color }}',
+                            borderColor: '{{ protocol.group.color }}'
                         },
                     {% endfor %}
                 ],
                 eventClick: function (info) {
                     window.location.href = '/protocol/' + info.event.id;
+                },
+                eventDidMount: function(info) {
+                    info.el.style.cursor = 'pointer';
                 }
             });
             calendar.render();
@@ -32,74 +41,119 @@
 {% endblock %}
 
 {% block content %}
+    <!-- Welcome Header -->
     {% now "H" as current_time %}
-    <div>
-        <h1>Good
+    <div class="mb-5">
+        <h1 class="display-6 fw-bold">
             {% if current_time|add:0 >= 17 %}
-                evening,
+                Guten Abend,
             {% elif current_time|add:0 >= 12 %}
-                afternoon,
+                Guten Nachmittag,
             {% else %}
-                morning,
+                Guten Morgen,
             {% endif %}
-            {% firstof user.get_full_name user.username %}
+            <span style="color: #667eea;">{{ user.get_full_name|default:user.username }}</span>!
         </h1>
+        <p class="text-secondary">{{ "now"|date:"l, d. F Y" }}</p>
     </div>
-    <div class="container mt-3">
-        <div class="row">
-            <div class="card shadow-lg col-12 col-md-5 me-md-4 mb-3">
-                <div class="card-header mt-2">
-                    <div>Last Protocols:</div>
+
+    <div class="row g-4">
+        <!-- Calendar Card -->
+        <div class="col-12 col-lg-7">
+            <div class="card shadow-lg h-100">
+                <div class="card-header border-0">
+                    <h5 class="mb-0"><i class="bi bi-calendar3"></i> Protokolle diesen Monat</h5>
                 </div>
                 <div class="card-body">
                     {% if protocols %}
-                        <div id="calendar"></div>
-                        {{ protocol.protocol_date }}
+                        <div id="calendar" class="fc-light"></div>
                     {% else %}
-                        <div class="alert alert-warning" role="alert">No current Protocols</div>
+                        <div class="alert alert-warning border-0" role="alert">
+                            <i class="bi bi-exclamation-circle"></i> Keine Protokolle für diesen Monat
+                        </div>
+                        <a href="{% url 'add_protocol' %}" class="btn btn-primary w-100" data-bs-toggle="modal"
+                           data-bs-target="#modal">
+                            <i class="bi bi-plus-circle"></i> Neues Protokoll
+                        </a>
                     {% endif %}
                 </div>
-                <div class="card-footer">
-                    <a href="{% url "add_protocol" %}" class="btn btn-primary" data-bs-toggle="modal"
-                       data-bs-target="#modal"><i class="bi bi-journal-plus"></i> New
-                        Protocol</a>
+                {% if protocols %}
+                <div class="card-footer border-0 bg-transparent">
+                    <a href="{% url 'protocol' %}" class="btn btn-outline-primary me-2">
+                        <i class="bi bi-list"></i> Alle Protokolle
+                    </a>
+                    <a href="{% url 'add_protocol' %}" class="btn btn-primary" data-bs-toggle="modal"
+                       data-bs-target="#modal">
+                        <i class="bi bi-plus-circle"></i> Neues Protokoll
+                    </a>
                 </div>
+                {% endif %}
             </div>
-            <div class="card shadow-lg col-12 col-md-5 mb-3">
-                <div class="card-header mt-2">
-                    <div>Current Residents:</div>
+        </div>
+
+        <!-- Residents Card -->
+        <div class="col-12 col-lg-5">
+            <div class="card shadow-lg h-100">
+                <div class="card-header border-0">
+                    <h5 class="mb-0"><i class="bi bi-people-fill"></i> Aktuelle Bewohner</h5>
                 </div>
-                <div class="card-body">
+                <div class="card-body" style="max-height: 500px; overflow-y: auto;">
                     {% if residents %}
-                        {% for resident in residents %}
-                            <a href="{% url "resident" resident.id %}"
-                               class="link-body-emphasis link-underline-opacity-0">
-                                <div class="row mb-3 align-items-center rounded-5"
-                                     style="background:{{ resident.group.color }}">
-                                    <div class="col-auto m-2">
-                                        {% if resident.picture %}
-                                            <img src="{{ resident.picture.url }}" alt="profil"
-                                                 class="img-fluid rounded" style="max-width: 100px; max-height: 100px;">
-                                        {% else %}
-                                            <div class="d-flex align-items-center justify-content-center bg-secondary text-white rounded"
-                                                 style="width: 100px; height: 100px;">
-                                                <span>No Image</span>
+                        <div class="row g-2">
+                            {% for resident in residents %}
+                                <div class="col-12">
+                                    <a href="{% url 'resident' resident.id %}" class="text-decoration-none">
+                                        <div class="card border-0 shadow-sm hover-card h-100"
+                                             style="--card-color: {{ resident.group.color }}40;">
+                                            <div class="card-body p-3">
+                                                <div class="d-flex gap-3 align-items-center"
+                                                     style="background: linear-gradient(135deg, {{ resident.group.color }}10 0%, {{ resident.group.color }}05 100%); padding: 0.75rem; border-radius: 0.5rem;">
+                                                    
+                                                    <!-- Profile Picture -->
+                                                    <div class="flex-shrink-0">
+                                                        {% if resident.picture %}
+                                                            <img src="{{ resident.picture.url }}" alt="{{ resident.get_full_name }}"
+                                                                 class="rounded-circle"
+                                                                 style="width: 70px; height: 70px; object-fit: cover; border: 3px solid {{ resident.group.color }};">
+                                                        {% else %}
+                                                            <div class="rounded-circle d-flex align-items-center justify-content-center"
+                                                                 style="width: 70px; height: 70px; background: {{ resident.group.color }}20; color: {{ resident.group.color }};">
+                                                                <i class="bi bi-person" style="font-size: 1.5rem;"></i>
+                                                            </div>
+                                                        {% endif %}
+                                                    </div>
+                                                    
+                                                    <!-- Info -->
+                                                    <div class="flex-grow-1 min-w-0">
+                                                        <h6 class="mb-1 fw-bold text-truncate">{{ resident.get_full_name }}</h6>
+                                                        <small class="text-secondary d-block">
+                                                            <i class="bi bi-calendar-event"></i>
+                                                            seit {{ resident.moved_in_since|date:"d.m.Y" }}
+                                                        </small>
+                                                        <small class="d-block" style="color: {{ resident.group.color }}; font-weight: 500;">
+                                                            {{ resident.group.name }}
+                                                        </small>
+                                                    </div>
+                                                </div>
                                             </div>
-                                        {% endif %}
-                                    </div>
-                                    <div class="col-auto m-2">
-                                        <h5 class="mb-1">{{ resident.get_full_name }}</h5>
-                                        <p class="mb-0 text-body-emphasis"><i class="bi bi-info-circle"></i> Moved in
-                                            since: {{ resident.moved_in_since }}</p>
-                                    </div>
+                                        </div>
+                                    </a>
                                 </div>
-                            </a>
-                        {% endfor %}
+                            {% endfor %}
+                        </div>
                     {% else %}
-                        <div class="alert alert-warning" role="alert">No current Resident</div>
+                        <div class="alert alert-warning border-0" role="alert">
+                            <i class="bi bi-exclamation-circle"></i> Keine aktiven Bewohner
+                        </div>
                     {% endif %}
                 </div>
-                <div class="card-footer">
+                <div class="card-footer border-0 bg-transparent">
+                    <a href="{% url 'resident' %}" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-list"></i> Alle Bewohner
+                    </a>
+                    <a href="{% url 'add_resident' %}" class="btn btn-primary btn-sm">
+                        <i class="bi bi-plus-circle"></i> Bewohner hinzufügen
+                    </a>
                 </div>
             </div>
         </div>
