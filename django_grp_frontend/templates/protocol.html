@@ -3,167 +3,380 @@
 
 {% block customjs %}
     <script>
-        async function post_presence(user_id, presence) {
-            const url = "{% url "update-presence" %}";
-            const data = {
-                protocol: {{ protocol.id }},
-                user: user_id,
-                was_present: presence
-            };
+        // Toast notification system
+        function showToast(message, type = 'info') {
+            const toastContainer = document.querySelector('.toast-container') || createToastContainer();
+            const toastHtml = `
+                <div class="toast align-items-center text-white bg-${type === 'success' ? 'success' : type === 'danger' ? 'danger' : 'info'} border-0" role="alert">
+                    <div class="d-flex">
+                        <div class="toast-body">
+                            <i class="bi bi-${type === 'success' ? 'check-circle' : type === 'danger' ? 'exclamation-circle' : 'info-circle'}"></i>
+                            ${message}
+                        </div>
+                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                    </div>
+                </div>
+            `;
+            toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+            const toastEl = toastContainer.lastElementChild;
+            const toast = new bootstrap.Toast(toastEl);
+            toast.show();
+        }
+
+        function createToastContainer() {
+            const container = document.createElement('div');
+            container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+            document.body.appendChild(container);
+            return container;
+        }
+
+        // Presence Toggle with Feedback
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.presence-toggle').forEach(checkbox => {
+                checkbox.addEventListener('change', async function() {
+                    const button = this;
+                    const originalChecked = this.checked;
+                    
+                    // Visual feedback
+                    button.disabled = true;
+                    button.style.opacity = '0.6';
+                    
+                    try {
+                        const response = await fetch("{% url 'update-presence' %}", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "X-CSRFToken": "{{ csrf_token }}"
+                            },
+                            body: JSON.stringify({
+                                protocol: {{ protocol.id }},
+                                user: this.dataset.userId,
+                                was_present: this.checked
+                            }),
+                        });
+                        
+                        if (!response.ok) throw new Error('Failed to update presence');
+                        
+                        showToast('Anwesenheit aktualisiert ✓', 'success');
+                    } catch (error) {
+                        button.checked = !originalChecked;
+                        showToast('Fehler beim Speichern', 'danger');
+                        console.error("Error:", error);
+                    } finally {
+                        button.disabled = false;
+                        button.style.opacity = '1';
+                    }
+                });
+            });
+
+            // Auto-resize textareas
+            setupAutoResizeTextareas();
+            
+            // Delete button handlers
+            setupDeleteButtons();
+            
+            // Auto-save on input change
+            setupAutoSaveItems();
+        });
+
+        function setupAutoResizeTextareas() {
+            document.querySelectorAll('.auto-resize').forEach(textarea => {
+                const resizeTextarea = () => {
+                    textarea.style.height = 'auto';
+                    textarea.style.height = Math.min(textarea.scrollHeight, 400) + 'px';
+                };
+                
+                textarea.addEventListener('input', resizeTextarea);
+                // Initial resize
+                setTimeout(resizeTextarea, 0);
+            });
+        }
+
+        function setupDeleteButtons() {
+            document.querySelectorAll('.delete-item').forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const itemId = this.dataset.itemId;
+                    if (!confirm('Diesen Eintrag wirklich löschen?')) return;
+                    
+                    try {
+                        const response = await fetch("{% url 'update-item' %}", {
+                            method: "DELETE",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "X-CSRFToken": "{{ csrf_token }}"
+                            },
+                            body: JSON.stringify({ item_id: itemId }),
+                        });
+                        
+                        if (!response.ok) throw new Error('Failed to delete');
+                        
+                        const element = document.getElementById('li-' + itemId);
+                        element.style.animation = 'fadeOut 0.3s ease';
+                        setTimeout(() => element.remove(), 300);
+                        showToast('Eintrag gelöscht ✓', 'success');
+                    } catch (error) {
+                        showToast('Fehler beim Löschen', 'danger');
+                    }
+                });
+            });
+        }
+
+        function setupAutoSaveItems() {
+            document.querySelectorAll('.item-name, .item-value').forEach(input => {
+                let saveTimeout;
+                input.addEventListener('input', function() {
+                    clearTimeout(saveTimeout);
+                    saveTimeout = setTimeout(() => {
+                        saveItem(this);
+                    }, 1000); // Save 1 second after user stops typing
+                });
+            });
+        }
+
+        async function saveItem(inputElement) {
+            const listItem = inputElement.closest('li');
+            const itemId = listItem.id.replace('li-', '');
+            const name = listItem.querySelector('.item-name').value;
+            const value = listItem.querySelector('.item-value').value;
+            
             try {
-                const response = await fetch(url, {
+                const response = await fetch("{% url 'update-item' %}", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
                         "X-CSRFToken": "{{ csrf_token }}"
                     },
-                    body: JSON.stringify(data),
+                    body: JSON.stringify({
+                        item_id: itemId,
+                        protocol: {{ protocol.id }},
+                        name: name,
+                        value: value,
+                        position: 0
+                    }),
                 });
-
+                
                 if (response.ok) {
-                    const result = await response.json();
-                    console.log("Presence updated successfully:", result);
-                } else {
-                    const errorData = await response.json();
-                    console.error("Failed to update presence:", errorData);
+                    // Auto-save successful, no toast needed
+                    console.log('Item saved');
                 }
             } catch (error) {
-                console.error("An error occurred:", error);
-            }
-        }
-
-        async function post_value(item_id, name, value, position) {
-            const url = "{% url "update-item" %}";
-            const data = {
-                item_id: item_id,
-                protocol: {{ protocol.id }},
-                name: name,
-                value: value,
-                position: position
-            };
-            try {
-                const response = await fetch(url, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "X-CSRFToken": "{{ csrf_token }}"
-                    },
-                    body: JSON.stringify(data),
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    console.log("Item updated successfully:", result);
-                } else {
-                    const errorData = await response.json();
-                    console.error("Failed to update presence:", errorData);
-                }
-            } catch (error) {
-                console.error("An error occurred:", error);
-            }
-        }
-
-        async function delete_item(item_id) {
-            const url = "{% url "update-item" %}";
-            const data = {
-                item_id: item_id
-            }
-            try {
-                const response = await fetch(url, {
-                    method: "DELETE",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "X-CSRFToken": "{{ csrf_token }}"
-                    },
-                    body: JSON.stringify(data),
-                });
-                if (response.ok) {
-                    const result = await response.json();
-                    console.log("Item deleted successfully:", result);
-                    document.getElementById("li-" + item_id).remove()
-                }
-            } catch (error) {
-                console.error("An error occurred:", error);
+                console.error("Save error:", error);
             }
         }
 
         async function append_item() {
-            await post_value('', '<Neu>', '', 99)
-            location.reload();
-        }
-    </script>
-    <script>
-        $(document).ready(function () {
-            document.querySelectorAll('.auto-resize').forEach(textarea => {
-                textarea.addEventListener('input', () => {
-                    textarea.style.height = 'auto'; // Reset height to calculate
-                    textarea.style.height = `${textarea.scrollHeight}px`; // Set new height
+            try {
+                const response = await fetch("{% url 'update-item' %}", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": "{{ csrf_token }}"
+                    },
+                    body: JSON.stringify({
+                        item_id: '',
+                        protocol: {{ protocol.id }},
+                        name: 'Neuer Eintrag',
+                        value: '',
+                        position: 99
+                    }),
                 });
-            });
-            document.querySelectorAll('.auto-resize').forEach(textarea => {
-                const event = new Event('input', {bubbles: true});
-                textarea.dispatchEvent(event);
-            });
-        })
+                
+                if (response.ok) {
+                    location.reload();
+                }
+            } catch (error) {
+                showToast('Fehler beim Erstellen', 'danger');
+            }
+        }
+
+        // Fade out animation
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes fadeOut {
+                from { opacity: 1; }
+                to { opacity: 0; transform: translateX(-20px); }
+            }
+        `;
+        document.head.appendChild(style);
     </script>
 {% endblock %}
 
 
 {% block content %}
-    <div class="card">
-        <div class="card-header">
-            <h2>Protokoll vom {{ protocol.protocol_date }}</h2>
-        </div>
-        <div class="card-body">
-            <div class="row">
-                <div class="card card-body shadow-sm col-2">
-                    <h6>Group-Information:</h6>
-                    <div class="small">{{ protocol.group.name }}</div>
-                    <div class="small">{{ protocol.group.get_full_address }}</div>
+    <div class="card shadow-lg mb-4">
+        <!-- Header -->
+        <div class="card-header border-0 bg-gradient" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+            <div class="row align-items-center">
+                <div class="col">
+                    <h2 class="mb-1" style="color: white;">
+                        <i class="bi bi-journal-text"></i> Protokoll vom {{ protocol.protocol_date|date:"d. F Y" }}
+                    </h2>
+                    <small class="text-light">Erstellt: {{ protocol.date_added|date:"d. F Y" }}</small>
                 </div>
-                <div class="card card-body shadow-sm col-2">
-                    <h6>Presence:</h6>
-                    <div id="presence_list" class="row-cols-2">
-                        {% for user in presence_list %}
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="flexSwitchCheckReverse"
-                                       onclick="post_presence({{ user.user.id }},this.checked)"
-                                       {% if user.was_present %}checked{% endif %}>
-                                <label class="form-check-label"
-                                       for="flexSwitchCheckReverse">{% firstof user.user.get_full_name  user.user.username %}</label>
-                            </div>
-                        {% endfor %}
-                    </div>
-                </div>
-                <div class="card card-body shadow-sm mt-2 col-12">
-                    <ul id="sortable" class="list-group list-group-flush">
-                        {% for item in protocol_items %}
-                            <li class="list-group-item row" id="li-{{ item.id }}"
-                                onchange="post_value({{ item.id }},document.getElementById('input-{{ item.id }}').value, document.getElementById('textarea-{{ item.id }}').value,0)">
-                                <div class="card card-body shadow-sm">
-                                    <div class="form-floating">
-                                        <input id="input-{{ item.id }}" class="form-control" value="{{ item.name }}" placeholder="">
-                                        <label for="input-{{ item.id }}">Title</label>
-                                    </div>
-
-                                    <div class="form-floating">
-                                    <textarea id="textarea-{{ item.id }}"
-                                              class="form-control auto-resize overflow-hidden" placeholder="">{{ item.value }}</textarea>
-                                        <label for="textarea-{{ item.id }}">Text</label>
-                                    </div>
-                                </div>
-                                <div class="btn col-1 float-end" onclick="delete_item({{ item.id }})"><i
-                                        class="bi bi-trash3"></i> Delete
-                                </div>
-                            </li>
-                        {% endfor %}
-                    </ul>
+                <div class="col-auto">
+                    <span class="badge {% if protocol.exported %}bg-success{% else %}bg-secondary{% endif %}">
+                        {% if protocol.exported %}<i class="bi bi-check-circle"></i> Exportiert{% else %}<i class="bi bi-hourglass"></i> Nicht exportiert{% endif %}
+                    </span>
                 </div>
             </div>
         </div>
-        <div class="card-footer">
-            <button class="btn btn-primary" onclick="append_item()">Add Item</button>
-            <a href="{% url "export-protocol" protocol.id %}" target="_blank" class="btn btn-warning">View Export</a>
+
+        <div class="card-body">
+            <div class="row g-4">
+                <!-- Group Information -->
+                <div class="col-12 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <h6 class="card-title mb-3">
+                                <i class="bi bi-building"></i> Gruppen-Information
+                            </h6>
+                            <div class="small mb-2">
+                                <strong>{{ protocol.group.name }}</strong>
+                            </div>
+                            <div class="small text-secondary" style="line-height: 1.6;">
+                                {{ protocol.group.get_full_address|linebreaks }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Presence Checklist -->
+                <div class="col-12 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <h6 class="card-title mb-3">
+                                <i class="bi bi-person-check"></i> Anwesenheit
+                            </h6>
+                            <div id="presence_list" class="space-y-2">
+                                {% for user in presence_list %}
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input presence-toggle" 
+                                               type="checkbox" 
+                                               id="presence_{{ user.user.id }}"
+                                               data-user-id="{{ user.user.id }}"
+                                               data-protocol-id="{{ protocol.id }}"
+                                               {% if user.was_present %}checked{% endif %}>
+                                        <label class="form-check-label" for="presence_{{ user.user.id }}">
+                                            {% firstof user.user.get_full_name user.user.username %}
+                                        </label>
+                                    </div>
+                                {% empty %}
+                                    <p class="text-secondary small mb-0">Keine Nutzer in dieser Gruppe</p>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Statistics -->
+                <div class="col-12 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <h6 class="card-title mb-3">
+                                <i class="bi bi-graph-up"></i> Übersicht
+                            </h6>
+                            <div class="row g-3">
+                                <div class="col-6">
+                                    <div class="bg-white p-3 rounded text-center">
+                                        <div class="h5 mb-0" style="color: #667eea;">{{ protocol_items|length }}</div>
+                                        <small class="text-secondary">Einträge</small>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="bg-white p-3 rounded text-center">
+                                        <div class="h5 mb-0" style="color: #764ba2;">
+                                            {% widthratio presence_list|length 1 1 %}
+                                        </div>
+                                        <small class="text-secondary">Personen</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Protocol Items Section -->
+            <div class="mt-5">
+                <h5 class="mb-3">
+                    <i class="bi bi-list-check"></i> Notizen und Einträge
+                </h5>
+                <ul id="sortable" class="list-group list-group-flush">
+                    {% for item in protocol_items %}
+                        <li class="list-group-item p-0 border-0 mb-3" id="li-{{ item.id }}">
+                            <div class="card border-0 shadow-sm hover-card">
+                                <div class="card-body p-4">
+                                    <div class="row gap-3 align-items-start">
+                                        <!-- Drag Handle -->
+                                        <div class="col-auto pt-2 drag-handle" style="cursor: grab; color: #999;">
+                                            <i class="bi bi-grip-vertical"></i>
+                                        </div>
+                                        
+                                        <!-- Content -->
+                                        <div class="col flex-grow-1">
+                                            <div class="form-floating mb-3">
+                                                <input id="input-{{ item.id }}" 
+                                                       class="form-control item-name"
+                                                       value="{{ item.name }}" 
+                                                       placeholder="">
+                                                <label for="input-{{ item.id }}">Titel</label>
+                                            </div>
+
+                                            <div class="form-floating">
+                                                <textarea id="textarea-{{ item.id }}"
+                                                          class="form-control item-value auto-resize" 
+                                                          placeholder=""></textarea>
+                                                <label for="textarea-{{ item.id }}">Notizen</label>
+                                            </div>
+                                            <script>
+                                                document.getElementById('textarea-{{ item.id }}').value = `{{ item.value }}`;
+                                                document.getElementById('textarea-{{ item.id }}').dispatchEvent(new Event('input', {bubbles: true}));
+                                            </script>
+                                        </div>
+                                        
+                                        <!-- Delete Button -->
+                                        <div class="col-auto">
+                                            <button type="button" 
+                                                    class="btn btn-sm btn-outline-danger delete-item"
+                                                    data-item-id="{{ item.id }}"
+                                                    title="Löschen">
+                                                <i class="bi bi-trash3"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                    {% empty %}
+                        <li class="list-group-item">
+                            <div class="alert alert-info border-0 mb-0">
+                                <i class="bi bi-info-circle"></i> Noch keine Einträge hinzugefügt
+                            </div>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="card-footer border-top bg-light">
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-primary" onclick="append_item()">
+                    <i class="bi bi-plus-circle"></i> Neuer Eintrag
+                </button>
+                <a href="{% url 'export-protocol' protocol.id %}" target="_blank" class="btn btn-warning">
+                    <i class="bi bi-file-earmark-pdf"></i> Als PDF exportieren
+                </a>
+                <a href="{% url 'protocol' %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left"></i> Zurück
+                </a>
+            </div>
         </div>
     </div>
+
+    <style>
+        .space-y-2 > * + * {
+            margin-top: 0.5rem;
+        }
+    </style>
 {% endblock %}

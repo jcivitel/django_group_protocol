@@ -3,9 +3,12 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.http import HttpResponse
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.template import loader
 from django.utils.timezone import now
+from django.views.generic import ListView, CreateView, UpdateView, DetailView
+from django.urls import reverse_lazy
+from django.utils.decorators import method_decorator
 
 from django_grp_backend.functions import group_required
 from django_grp_backend.models import (
@@ -51,25 +54,8 @@ def dashboard(request):
     template = loader.get_template("dashboard.html")
     template_opts = dict()
 
-    today = now().date()
-
-    template_opts["residents"] = (
-        Resident.objects.filter(moved_out_since__isnull=True).order_by("group")
-        if request.user.is_staff
-        else Resident.objects.filter(moved_out_since__isnull=True)
-        .filter(group__group_members=request.user)
-        .order_by("group")
-    )
-
-    template_opts["protocols"] = (
-        Protocol.objects.filter(
-            protocol_date__year=today.year, protocol_date__month=today.month
-        )
-        if request.user.is_staff
-        else Protocol.objects.filter(
-            protocol_date__year=today.year, protocol_date__month=today.month
-        ).filter(group__group_members=request.user)
-    )
+    template_opts["residents"] = Resident.objects.active().for_user(request.user).order_by("group")
+    template_opts["protocols"] = Protocol.objects.current_month().for_user(request.user)
 
     return HttpResponse(template.render(template_opts, request))
 
@@ -89,16 +75,145 @@ def profile(request):
     return HttpResponse(template.render(template_opts, request))
 
 
+# ============ CLASS-BASED VIEWS ============
+
+class UserAccessMixin:
+    """Mixin to filter querysets based on user permissions."""
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.for_user(self.request.user)
+
+
+class ResidentListView(UserAccessMixin, ListView):
+    model = Resident
+    template_name = "list_residents.html"
+    context_object_name = "residents"
+    
+    def get_queryset(self):
+        return Resident.objects.for_user(self.request.user)
+
+
+class ResidentCreateView(CreateView):
+    model = Resident
+    form_class = ResidentForm
+    template_name = "resident.html"
+    success_url = reverse_lazy("resident_list")
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["action"] = "Add"
+        return context
+    
+    def form_valid(self, form):
+        messages.success(self.request, "Resident has been added")
+        return super().form_valid(form)
+
+
+class ResidentUpdateView(UpdateView):
+    model = Resident
+    form_class = ResidentForm
+    template_name = "resident.html"
+    success_url = reverse_lazy("resident_list")
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["action"] = "Update"
+        return context
+    
+    def form_valid(self, form):
+        messages.success(self.request, "Resident has been updated")
+        return super().form_valid(form)
+
+
+class ProtocolListView(UserAccessMixin, ListView):
+    model = Protocol
+    template_name = "list_protocols.html"
+    context_object_name = "protocols"
+    
+    def get_queryset(self):
+        return Protocol.objects.for_user(self.request.user)
+
+
+class ProtocolCreateView(CreateView):
+    model = Protocol
+    form_class = ProtocolForm
+    template_name = "add_protocol.html"
+    success_url = reverse_lazy("protocol_list")
+    
+    def form_valid(self, form):
+        messages.success(self.request, "Protocol has been added")
+        return super().form_valid(form)
+    
+    def form_invalid(self, form):
+        messages.error(self.request, "Invalid form")
+        return super().form_invalid(form)
+
+
+class ProtocolDetailView(DetailView):
+    model = Protocol
+    template_name = "protocol.html"
+    context_object_name = "protocol"
+    pk_url_kwarg = "id"
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["protocol_items"] = ProtocolItem.objects.filter(protocol=self.object)
+        context["presence_list"] = ProtocolPresence.objects.filter(protocol=self.object)
+        return context
+
+
+class GroupListView(UserAccessMixin, ListView):
+    model = Group
+    template_name = "list_groups.html"
+    context_object_name = "groups"
+    
+    def get_queryset(self):
+        return Group.objects.for_user(self.request.user)
+
+
+class GroupCreateView(CreateView):
+    model = Group
+    form_class = GroupForm
+    template_name = "group.html"
+    success_url = reverse_lazy("group_list")
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["action"] = "Add"
+        return context
+    
+    def form_valid(self, form):
+        messages.success(self.request, "Group has been added")
+        return super().form_valid(form)
+
+
+class GroupUpdateView(UpdateView):
+    model = Group
+    form_class = GroupForm
+    template_name = "group.html"
+    success_url = reverse_lazy("group_list")
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["action"] = "Update"
+        context["group_residents"] = Resident.objects.filter(group=self.object)
+        return context
+    
+    def form_valid(self, form):
+        messages.success(self.request, "Group has been updated")
+        return super().form_valid(form)
+
+
+# ============ BACKWARD COMPATIBILITY VIEWS ============
+# Keep old function-based views for now to avoid breaking changes
+
 @login_required
 def resident(request, id=None):
     if id is None:
         template = loader.get_template("list_residents.html")
         template_opts = dict()
-        template_opts["residents"] = (
-            Resident.objects.all()
-            if request.user.is_staff
-            else Resident.objects.filter(group__group_members=request.user)
-        )
+        template_opts["residents"] = Resident.objects.for_user(request.user)
     else:
         template = loader.get_template("resident.html")
         template_opts = dict()
@@ -139,11 +254,7 @@ def protocol(request, id=None):
     if id is None:
         template = loader.get_template("list_protocols.html")
         template_opts = dict()
-        template_opts["protocols"] = (
-            Protocol.objects.all()
-            if request.user.is_staff
-            else Protocol.objects.filter(group__group_members=request.user)
-        )
+        template_opts["protocols"] = Protocol.objects.for_user(request.user)
     else:
         template = loader.get_template("protocol.html")
         template_opts = dict()
@@ -176,11 +287,7 @@ def group(request, id=None):
     if id is None:
         template = loader.get_template("list_groups.html")
         template_opts = dict()
-        template_opts["groups"] = (
-            Group.objects.all()
-            if request.user.is_staff
-            else Group.objects.filter(group_members=request.user)
-        )
+        template_opts["groups"] = Group.objects.for_user(request.user)
     else:
         template = loader.get_template("group.html")
         template_opts = dict()
@@ -188,7 +295,6 @@ def group(request, id=None):
             form = GroupForm(
                 request.POST, request.FILES, instance=Group.objects.get(id=id)
             )
-            print(request.FILES)
             if form.is_valid():
                 form.save()
                 messages.success(request, "Group has been updated")
