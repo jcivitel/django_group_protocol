@@ -71,7 +71,7 @@
             <div class="col-12 col-lg-8">
                 <div class="card shadow-lg">
                     <!-- Header -->
-                    <div class="card-header border-0 bg-gradient" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                    <div class="card-header border-0 bg-gradient" style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white;">
                         <h2 class="mb-0">
                             <i class="bi bi-person"></i> 
                             {% if action == "Update" %}
@@ -84,7 +84,7 @@
 
                     <!-- Form Body -->
                     <div class="card-body p-4">
-                        <form method="post" enctype="multipart/form-data">
+                        <form method="post" enctype="multipart/form-data" id="resident-form">
                             {% csrf_token %}
                             
                             <!-- Profile Picture Section -->
@@ -194,28 +194,20 @@
                                     {% endfor %}
                                 </div>
                             {% endif %}
-                        </form>
-                    </div>
 
-                    <!-- Footer -->
-                    <div class="card-footer border-top bg-light">
-                        <div class="d-flex gap-2">
-                            <button type="submit" form="resident-form" class="btn btn-primary">
-                                <i class="bi bi-check-circle"></i> {{ action }}
-                            </button>
-                            <a href="{% url 'resident' %}" class="btn btn-outline-secondary">
-                                <i class="bi bi-x-circle"></i> Abbrechen
-                            </a>
-                        </div>
+                            <!-- Footer Buttons in Form -->
+                            <div class="d-flex gap-2 mt-5">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check-circle"></i> {{ action }}
+                                </button>
+                                <a href="{% url 'resident' %}" class="btn btn-outline-secondary">
+                                    <i class="bi bi-x-circle"></i> Abbrechen
+                                </a>
+                            </div>
+                        </form>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-
-    <!-- Fix form submission -->
-    <script>
-        document.querySelector('form').id = 'resident-form';
-        document.querySelector('button[type="submit"]').remove();
-    </script>
 {% endblock %}

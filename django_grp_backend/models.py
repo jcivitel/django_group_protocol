@@ -150,16 +150,28 @@ class Resident(models.Model):
 
 
 class Protocol(models.Model):
+    STATUS_CHOICES = [
+        ("draft", "Entwurf"),
+        ("ready", "Bereit zum Export"),
+        ("exported", "Exportiert"),
+    ]
+    
     protocol_date = models.DateField()
     date_added = models.DateField(auto_now_add=True)
     last_updated = models.DateField(auto_now=True)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="draft")
     exported = models.BooleanField(default=False)
     
     objects = ProtocolManager()
 
     def __str__(self):
         return f"{self.group.name} - {self.protocol_date}"
+    
+    @property
+    def is_exported(self):
+        """Check if protocol is exported (read-only)."""
+        return self.status == "exported"
 
 
 class ProtocolPresence(models.Model):

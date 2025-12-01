@@ -2,6 +2,8 @@
 {% load static %}
 
 {% block customjs %}
+    <script src="{% static 'jquery/jquery-ui.min.js' %}"></script>
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
     <script>
         // Toast notification system
         function showToast(message, type = 'info') {
@@ -30,10 +32,166 @@
             return container;
         }
 
+        // @Mention Autocomplete
+        let mentionList = [];
+
+        async function loadMentions() {
+            try {
+                const response = await fetch("{% url 'mention-autocomplete' %}?protocol_id={{ protocol.id }}");
+                if (response.ok) {
+                    mentionList = await response.json();
+                }
+            } catch (error) {
+                console.error("Error loading mentions:", error);
+            }
+        }
+
+        function initMentionAutocomplete() {
+            document.querySelectorAll('.item-value').forEach(textarea => {
+                $(textarea).autocomplete({
+                    minLength: 1,
+                    source: function(request, response) {
+                        // Get the text before cursor
+                        const term = extractMentionTerm(request.term);
+                        
+                        if (term.length === 0) {
+                            response([]);
+                            return;
+                        }
+
+                        // Filter mentions based on input
+                        const matches = mentionList.filter(mention => 
+                            mention.name.toLowerCase().includes(term.toLowerCase()) ||
+                            mention.mention.toLowerCase().includes(term.toLowerCase())
+                        );
+
+                        response(matches.map(m => ({
+                            label: m.name,
+                            value: m.mention
+                        })));
+                    },
+                    focus: function(event, ui) {
+                        return false;
+                    },
+                    select: function(event, ui) {
+                        // Replace @partial with @full_name
+                        const value = this.value;
+                        const lastAtIndex = value.lastIndexOf('@');
+                        const beforeAt = value.substring(0, lastAtIndex);
+                        const afterCursor = value.substring(this.selectionStart);
+                        
+                        this.value = beforeAt + '@' + ui.item.value + afterCursor;
+                        
+                        // Move cursor after the inserted mention
+                        setTimeout(() => {
+                            this.selectionStart = this.selectionEnd = beforeAt.length + ui.item.value.length + 1;
+                            this.focus();
+                        }, 0);
+                        
+                        // Trigger input event for auto-save
+                        $(this).trigger('input');
+                        return false;
+                    }
+                });
+
+                // Show autocomplete on @
+                $(textarea).on('keyup', function(event) {
+                    if (event.key === '@') {
+                        $(this).autocomplete("search", "");
+                    }
+                });
+            });
+        }
+
+        function extractMentionTerm(term) {
+            // Find the last @ and extract text after it
+            const lastAtIndex = term.lastIndexOf('@');
+            if (lastAtIndex === -1) return '';
+            return term.substring(lastAtIndex + 1);
+        }
+
+        // Drag & Drop Sortable initialization
+        function initSortable() {
+            const isExported = {{ protocol.exported|lower }};
+            
+            $("#sortable").sortable({
+                handle: ".drag-handle",
+                placeholder: "list-group-item placeholder",
+                disabled: isExported,
+                update: function(event, ui) {
+                    // Get the new order
+                    const order = $(this).sortable('toArray', {attribute: 'id'});
+                    
+                    // Extract item IDs and update positions
+                    const positions = order.map((id, index) => ({
+                        id: id.replace('li-', ''),
+                        position: index
+                    }));
+                    
+                    // Save new positions for all items
+                    positions.forEach(item => {
+                        const listItem = document.getElementById('li-' + item.id);
+                        const name = listItem.querySelector('.item-name').value;
+                        const value = listItem.querySelector('.item-value').value;
+                        
+                        // Auto-save position
+                        fetch("{% url 'update-item' %}", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "X-CSRFToken": "{{ csrf_token }}"
+                            },
+                            body: JSON.stringify({
+                                item_id: item.id,
+                                protocol: {{ protocol.id }},
+                                name: name,
+                                value: value,
+                                position: item.position
+                            }),
+                        }).catch(error => console.error("Save error:", error));
+                    });
+                    
+                    showToast('Reihenfolge aktualisiert ✓', 'success');
+                }
+            });
+            
+            if (isExported) {
+                $("#sortable").sortable("disable");
+            }
+        }
+
         // Presence Toggle with Feedback
         document.addEventListener('DOMContentLoaded', function() {
+            const isExported = {{ protocol.exported|lower }};
+            
+            // Initialize sortable
+            initSortable();
+            
+            // Load mentions and initialize autocomplete
+            loadMentions().then(() => {
+                initMentionAutocomplete();
+            });
+            
+            // Disable all interactions if protocol is exported
+            if (isExported) {
+                document.querySelectorAll('input, textarea, button[onclick], .delete-item, .presence-toggle').forEach(element => {
+                    if (!element.dataset.allowWhenExported) {
+                        element.disabled = true;
+                        element.style.opacity = '0.6';
+                        element.style.pointerEvents = 'none';
+                    }
+                });
+            }
+            
             document.querySelectorAll('.presence-toggle').forEach(checkbox => {
                 checkbox.addEventListener('change', async function() {
+                    // Don't allow if exported
+                    if (isExported) {
+                        this.checked = !this.checked;
+                        showToast('Dieses Protokoll ist exportiert und kann nicht bearbeitet werden', 'danger');
+                        return;
+                    }
+                    
                     const button = this;
                     const originalChecked = this.checked;
                     
@@ -93,8 +251,16 @@
         }
 
         function setupDeleteButtons() {
+            const isExported = {{ protocol.exported|lower }};
+            
             document.querySelectorAll('.delete-item').forEach(btn => {
                 btn.addEventListener('click', async function() {
+                    // Check if protocol is exported
+                    if (isExported) {
+                        showToast('Dieses Protokoll ist exportiert und kann nicht bearbeitet werden', 'danger');
+                        return;
+                    }
+                    
                     const itemId = this.dataset.itemId;
                     if (!confirm('Diesen Eintrag wirklich löschen?')) return;
                     
@@ -122,9 +288,18 @@
         }
 
         function setupAutoSaveItems() {
+            const isExported = {{ protocol.exported|lower }};
+            
             document.querySelectorAll('.item-name, .item-value').forEach(input => {
                 let saveTimeout;
                 input.addEventListener('input', function() {
+                    // Don't allow saving if protocol is exported
+                    if (isExported) {
+                        this.value = this.defaultValue || '';
+                        showToast('Dieses Protokoll ist exportiert und kann nicht bearbeitet werden', 'danger');
+                        return;
+                    }
+                    
                     clearTimeout(saveTimeout);
                     saveTimeout = setTimeout(() => {
                         saveItem(this);
@@ -165,6 +340,13 @@
         }
 
         async function append_item() {
+            const isExported = {{ protocol.exported|lower }};
+            
+            if (isExported) {
+                showToast('Dieses Protokoll ist exportiert und kann nicht bearbeitet werden', 'danger');
+                return;
+            }
+            
             try {
                 const response = await fetch("{% url 'update-item' %}", {
                     method: "POST",
@@ -205,18 +387,24 @@
 {% block content %}
     <div class="card shadow-lg mb-4">
         <!-- Header -->
-        <div class="card-header border-0 bg-gradient" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+        <div class="card-header border-0 bg-gradient" style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white;">
             <div class="row align-items-center">
                 <div class="col">
-                    <h2 class="mb-1" style="color: white;">
+                    <h2 class="mb-1" style="color: white; font-weight: 600;">
                         <i class="bi bi-journal-text"></i> Protokoll vom {{ protocol.protocol_date|date:"d. F Y" }}
                     </h2>
-                    <small class="text-light">Erstellt: {{ protocol.date_added|date:"d. F Y" }}</small>
+                    <small style="color: rgba(255, 255, 255, 0.85);">Erstellt: {{ protocol.date_added|date:"d. F Y" }}</small>
                 </div>
                 <div class="col-auto">
-                    <span class="badge {% if protocol.exported %}bg-success{% else %}bg-secondary{% endif %}">
-                        {% if protocol.exported %}<i class="bi bi-check-circle"></i> Exportiert{% else %}<i class="bi bi-hourglass"></i> Nicht exportiert{% endif %}
-                    </span>
+                    {% if protocol.exported %}
+                        <span class="badge bg-success" style="font-size: 1rem; padding: 0.5rem 1rem;">
+                            <i class="bi bi-check-circle"></i> Exportiert
+                        </span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark" style="font-size: 1rem; padding: 0.5rem 1rem;">
+                            <i class="bi bi-pencil-square"></i> In Bearbeitung
+                        </span>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -295,6 +483,14 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Read-Only Warning -->
+            {% if protocol.exported %}
+                <div class="alert alert-info border-0 mt-4" role="alert">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Dieses Protokoll ist exportiert</strong> - Änderungen sind nicht mehr möglich.
+                </div>
+            {% endif %}
 
             <!-- Protocol Items Section -->
             <div class="mt-5">
