@@ -35,20 +35,20 @@
 
 /* Dark Mode */
 body.dark-mode {
-    --bg-primary: #1e1e1e;
-    --bg-secondary: #2d2d2d;
-    --bg-tertiary: #3a3a3a;
+    --bg-primary: #121212;
+    --bg-secondary: #1e1e1e;
+    --bg-tertiary: #2a2a2a;
     
-    --text-primary: #e8e8e8;
-    --text-secondary: #a8a8a8;
+    --text-primary: #f5f5f5;
+    --text-secondary: #b3b3b3;
     --text-tertiary: #808080;
     
-    --border-color: #404040;
-    --border-light: #353535;
+    --border-color: #3a3a3a;
+    --border-light: #2a2a2a;
     
-    --card-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.3);
-    --card-shadow-hover: 0 0.5rem 1rem rgba(0, 0, 0, 0.5);
-    --card-shadow-lg: 0 1rem 3rem rgba(0, 0, 0, 0.7);
+    --card-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.5);
+    --card-shadow-hover: 0 0.5rem 1rem rgba(0, 0, 0, 0.7);
+    --card-shadow-lg: 0 1rem 3rem rgba(0, 0, 0, 0.9);
 }
 
 /* ============================================
@@ -147,15 +147,25 @@ select:focus {
 
 .form-floating > .form-control:focus ~ label,
 .form-floating > .form-control:not(:placeholder-shown) ~ label {
-    color: var(--text-secondary);
+    color: var(--accent-primary);
+}
+
+/* Dark mode form label contrast */
+body.dark-mode .form-floating > label {
+    color: #888888;
+}
+
+body.dark-mode .form-floating > .form-control:focus ~ label,
+body.dark-mode .form-floating > .form-control:not(:placeholder-shown) ~ label {
+    color: #64b5f6;
 }
 
 /* ============================================
-   NAVBAR
-   ============================================ */
+    NAVBAR
+    ============================================ */
 
 .navbar {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
     box-shadow: var(--card-shadow);
     transition: all var(--transition-normal);
 }
@@ -224,9 +234,44 @@ select:focus {
     color: var(--text-primary);
 }
 
+/* Outline buttons in dark mode */
+body.dark-mode .btn-outline-secondary {
+    color: #b3b3b3;
+    border-color: #3a3a3a;
+}
+
+body.dark-mode .btn-outline-secondary:hover {
+    background-color: #2a2a2a;
+    border-color: #4a4a4a;
+    color: #f5f5f5;
+}
+
+/* Outline danger buttons in dark mode */
+body.dark-mode .btn-outline-danger {
+    color: #ff6b7a;
+    border-color: #4a2a2a;
+}
+
+body.dark-mode .btn-outline-danger:hover {
+    background-color: #3a2a2a;
+    border-color: #6a3a3a;
+    color: #ff9fa5;
+}
+
+/* Primary buttons in dark mode */
+body.dark-mode .btn-primary {
+    background-color: #1976d2;
+    border-color: #1976d2;
+}
+
+body.dark-mode .btn-primary:hover {
+    background-color: #1565c0;
+    border-color: #1565c0;
+}
+
 /* ============================================
-   HOVER CARD EFFECT
-   ============================================ */
+    HOVER CARD EFFECT
+    ============================================ */
 
 .hover-card {
     transition: all var(--transition-normal);
@@ -390,6 +435,7 @@ body.dark-mode .alert-danger {
 .modal-header {
     background-color: var(--bg-tertiary);
     border-color: var(--border-color);
+    color: var(--text-primary);
 }
 
 .modal-footer {

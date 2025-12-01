@@ -277,14 +277,15 @@ def add_protocol(request):
     template = loader.get_template("add_protocol.html")
     template_opts = dict()
     if request.method == "POST":
-        form = ProtocolForm(request.POST)
+        form = ProtocolForm(request.POST, user=request.user)
         if form.is_valid():
-            form.save()
-            messages.success(request, "Protocol has been added")
-            return redirect("protocol")
-        messages.error(request, "Invalid form")
+            protocol = form.save()
+            messages.success(request, "Protokoll erstellt")
+            # Redirect to the newly created protocol for editing
+            return redirect("protocol", id=protocol.id)
+        messages.error(request, "Ungültiges Formular")
 
-    template_opts["form"] = ProtocolForm()
+    template_opts["form"] = ProtocolForm(user=request.user)
 
     return HttpResponse(template.render(template_opts, request))
 

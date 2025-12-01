@@ -1,5 +1,6 @@
 from django import forms
 from django.contrib.auth.models import User
+from django.utils.timezone import now
 
 from django_grp_backend.models import Resident, Group, Protocol
 
@@ -107,10 +108,30 @@ class ProtocolForm(forms.ModelForm):
         ]
         widgets = {
             "protocol_date": forms.DateInput(
-                attrs={"class": "form-control", "type": "date"},
+                attrs={
+                    "class": "form-control",
+                    "type": "date",
+                    "placeholder": "Protokoll-Datum",
+                },
             ),
             "group": forms.Select(attrs={"class": "form-select"}),
         }
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Set today as default date for new protocols
+        if not self.instance.pk:
+            self.fields["protocol_date"].initial = now().date()
+        
+        # Filter groups based on user membership
+        if user and not user.is_staff:
+            self.fields["group"].queryset = Group.objects.filter(group_members=user)
+        
+        # Make form read-only if protocol is exported
+        if self.instance.pk and self.instance.exported:
+            for field in self.fields:
+                self.fields[field].widget.attrs['disabled'] = True
+                self.fields[field].widget.attrs['readonly'] = True
 
 
 class UpdateUserForm(forms.ModelForm):

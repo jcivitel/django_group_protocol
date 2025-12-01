@@ -1,12 +1,84 @@
+{% block customjs %}
+    <script>
+        // Set today's date as default when modal opens
+        function setDefaultDate() {
+            const dateInput = document.getElementById('id_protocol_date');
+            if (dateInput && !dateInput.value) {
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                dateInput.value = `${year}-${month}-${day}`;
+            }
+        }
+        
+        // Set date when modal is shown
+        document.addEventListener('DOMContentLoaded', function() {
+            const modalElement = document.getElementById('modal');
+            if (modalElement) {
+                modalElement.addEventListener('shown.bs.modal', setDefaultDate);
+            }
+        });
+    </script>
+{% endblock %}
+
 {% block content %}
-    <div class="modal-header text-body-emphasis">
-        <h2>New Protocol</h2>
+    <div class="modal-header" style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; border-bottom: none;">
+        <h5 class="modal-title" style="color: white;">
+            <i class="bi bi-file-earmark-plus"></i> Neues Protokoll
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
     </div>
-    <div class="modal-body text-body-emphasis">
-        <form method="post" action="{% url "add_protocol" %}">
+    <div class="modal-body">
+        <form method="post" action="{% url "add_protocol" %}" id="protocol-form">
             {% csrf_token %}
-            {{ form.as_p }}
-            <input class="btn btn-primary form-control" type="submit" value="Add">
+            
+            <div class="form-group mb-4">
+                <label for="{{ form.protocol_date.id_for_label }}" class="form-label mb-2">
+                    <i class="bi bi-calendar-event"></i> Protokoll-Datum
+                </label>
+                <div class="form-floating">
+                    {{ form.protocol_date }}
+                    <label for="{{ form.protocol_date.id_for_label }}">Datum auswählen</label>
+                </div>
+                {% if form.protocol_date.errors %}
+                    <div class="alert alert-danger alert-sm mt-2">
+                        {{ form.protocol_date.errors }}
+                    </div>
+                {% endif %}
+            </div>
+
+            <div class="form-group mb-4">
+                <label for="{{ form.group.id_for_label }}" class="form-label mb-2">
+                    <i class="bi bi-building"></i> Gruppe
+                </label>
+                <div class="form-floating">
+                    {{ form.group }}
+                    <label for="{{ form.group.id_for_label }}">Gruppe auswählen</label>
+                </div>
+                {% if form.group.errors %}
+                    <div class="alert alert-danger alert-sm mt-2">
+                        {{ form.group.errors }}
+                    </div>
+                {% endif %}
+            </div>
+
+            {% if form.non_field_errors %}
+                <div class="alert alert-danger" role="alert">
+                    <strong>Fehler:</strong>
+                    {% for error in form.non_field_errors %}
+                        <p class="mb-0">{{ error }}</p>
+                    {% endfor %}
+                </div>
+            {% endif %}
         </form>
+    </div>
+    <div class="modal-footer" style="background-color: var(--bg-tertiary); border-top: 1px solid var(--border-color);">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+            <i class="bi bi-x-circle"></i> Abbrechen
+        </button>
+        <button type="submit" form="protocol-form" class="btn btn-primary">
+            <i class="bi bi-check-circle"></i> Erstellen
+        </button>
     </div>
 {% endblock %}
