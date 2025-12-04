@@ -201,6 +201,41 @@ class ProtocolItem(models.Model):
         return f"{self.protocol} - {self.name}"
 
 
+class UserPermission(models.Model):
+    """
+    Fine-grained permissions for users on specific resources.
+    
+    Allows staff to assign specific read/write permissions on:
+    - Residents (create, read, update, delete)
+    - Protocols (create, read, update, delete)
+    - Groups (read, update)
+    """
+    PERMISSION_CHOICES = [
+        ("read", "Lesezugriff"),
+        ("write", "Schreibzugriff"),
+        ("delete", "Löschzugriff"),
+    ]
+    
+    RESOURCE_CHOICES = [
+        ("resident", "Bewohner"),
+        ("protocol", "Protokolle"),
+        ("group", "Gruppen"),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="permissions")
+    group = models.ForeignKey(Group, on_delete=models.CASCADE)
+    resource = models.CharField(max_length=20, choices=RESOURCE_CHOICES)
+    permission = models.CharField(max_length=20, choices=PERMISSION_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        unique_together = ("user", "group", "resource", "permission")
+        ordering = ["user", "group", "resource"]
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.group.name} - {self.resource}: {self.permission}"
+
+
 @receiver(post_save, sender=Protocol)
 def create_protocol_presence(sender, instance, created, **kwargs):
     if created:

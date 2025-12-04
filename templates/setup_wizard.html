@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Setup - Django Group Protocol</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        
+        input[type="text"],
+        input[type="email"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus,
+        input[type="email"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .form-group small {
+            display: block;
+            margin-top: 5px;
+            color: #999;
+            font-size: 12px;
+        }
+        
+        .button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 10px;
+        }
+        
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .button:active {
+            transform: translateY(0);
+        }
+        
+        .button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .alert {
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        
+        .alert-error {
+            background-color: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+        
+        .alert-success {
+            background-color: #efe;
+            color: #3c3;
+            border: 1px solid #cfc;
+        }
+        
+        .alert-info {
+            background-color: #eef;
+            color: #33c;
+            border: 1px solid #ccf;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .success-message {
+            display: none;
+            text-align: center;
+        }
+        
+        .success-message h2 {
+            color: #3c3;
+            margin-bottom: 15px;
+        }
+        
+        .success-message p {
+            color: #666;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        
+        .success-message .redirect-info {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            text-align: center;
+            font-size: 12px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Setup</h1>
+            <p>Initialisieren Sie das System durch Erstellen eines Superusers</p>
+        </div>
+        
+        <div id="alert-container"></div>
+        
+        <form id="setupForm">
+            <div class="form-group">
+                <label for="username">Benutzername</label>
+                <input type="text" id="username" name="username" required placeholder="z.B. admin">
+                <small>Wird für die Anmeldung verwendet</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="email">E-Mail</label>
+                <input type="email" id="email" name="email" required placeholder="admin@example.com">
+                <small>Wird für Benachrichtigungen verwendet</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Passwort</label>
+                <input type="password" id="password" name="password" required placeholder="Mindestens 8 Zeichen">
+                <small>Mindestens 8 Zeichen erforderlich</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="password_confirm">Passwort wiederholen</label>
+                <input type="password" id="password_confirm" name="password_confirm" required placeholder="Bestätigen Sie Ihr Passwort">
+            </div>
+            
+            <button type="submit" class="button" id="submitBtn">System initialisieren</button>
+        </form>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p style="margin-top: 10px; color: #666; font-size: 14px;">Initialisierung wird durchgeführt...</p>
+        </div>
+        
+        <div class="success-message" id="successMessage">
+            <h2>✓ Erfolg!</h2>
+            <p>Das System wurde erfolgreich initialisiert.</p>
+            <div class="redirect-info">
+                <p><strong>Superuser erstellt:</strong></p>
+                <p id="successUsername"></p>
+                <p style="margin-top: 15px; color: #999;">Sie werden automatisch weitergeleitet...</p>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>Django Group Protocol Backend</p>
+        </div>
+    </div>
+    
+    <script>
+        const form = document.getElementById('setupForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const loading = document.getElementById('loading');
+        const successMessage = document.getElementById('successMessage');
+        const alertContainer = document.getElementById('alert-container');
+        
+        function showAlert(message, type = 'error') {
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            alertContainer.innerHTML = '';
+            alertContainer.appendChild(alert);
+        }
+        
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value;
+            const passwordConfirm = document.getElementById('password_confirm').value;
+            
+            // Client-side validation
+            if (!username || !email || !password) {
+                showAlert('Alle Felder sind erforderlich.');
+                return;
+            }
+            
+            if (password !== passwordConfirm) {
+                showAlert('Passwörter stimmen nicht überein.');
+                return;
+            }
+            
+            if (password.length < 8) {
+                showAlert('Passwort muss mindestens 8 Zeichen lang sein.');
+                return;
+            }
+            
+            // Show loading state
+            form.style.display = 'none';
+            loading.style.display = 'block';
+            alertContainer.innerHTML = '';
+            
+            try {
+                const response = await fetch('/api/setup/init/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        username,
+                        email,
+                        password,
+                        password_confirm: passwordConfirm,
+                    }),
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Show success message
+                    loading.style.display = 'none';
+                    successMessage.style.display = 'block';
+                    document.getElementById('successUsername').textContent = data.user.username;
+                    
+                    // Redirect after 3 seconds
+                    setTimeout(() => {
+                        window.location.href = '/info/';
+                    }, 3000);
+                } else {
+                    // Show error
+                    form.style.display = 'block';
+                    loading.style.display = 'none';
+                    showAlert(data.error || 'Ein Fehler ist aufgetreten.');
+                }
+            } catch (error) {
+                form.style.display = 'block';
+                loading.style.display = 'none';
+                showAlert(`Fehler: ${error.message}`);
+            }
+        });
+    </script>
+</body>
+</html>
