@@ -1,11 +1,11 @@
 FROM python:3.12-alpine AS builder
 
 RUN apk add --no-cache libgcc mariadb-connector-c pkgconf mariadb-dev \
-    postgresql-dev linux-headers
+    postgresql-dev linux-headers curl
 
 WORKDIR /opt/grpproto/
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 COPY . /opt/grpproto/
 
@@ -14,12 +14,21 @@ WORKDIR /opt/grpproto
 ENV VIRTUAL_ENV=/opt/grpproto/venv
 
 RUN python -m venv $VIRTUAL_ENV
-
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-RUN pip install --no-cache-dir -r /opt/grpproto/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r /opt/grpproto/requirements.txt
 
 FROM install
 
+WORKDIR /opt/grpproto
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
 EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/admin/ || exit 1
+
+# Run entry script
 CMD ["sh", "entry.sh"]
