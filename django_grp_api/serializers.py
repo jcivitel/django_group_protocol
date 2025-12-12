@@ -19,10 +19,47 @@ class ProtocolItemSerializer(serializers.ModelSerializer):
 
 class ProtocolSerializer(serializers.ModelSerializer):
     items = ProtocolItemSerializer(many=True, required=False)
+    exported_file = serializers.SerializerMethodField()
 
     class Meta:
         model = Protocol
-        fields = ["id", "protocol_date", "group", "items", "exported", "status"]
+        fields = ["id", "protocol_date", "group", "items", "exported", "status", "exported_file"]
+    
+    def to_representation(self, instance):
+        """Override to handle both real and demo objects."""
+        # Ensure pk is set for serialization
+        if not hasattr(instance, '_state'):
+            # Demo object - add minimal _state to make it compatible
+            instance._state = type('State', (), {'db': None})()
+        
+        return super().to_representation(instance)
+    
+    def get_exported_file(self, obj):
+        """Return full URL for exported file if available."""
+        try:
+            if obj.exported_file:
+                request = self.context.get("request")
+                if request:
+                    return request.build_absolute_uri(obj.exported_file.url)
+                return obj.exported_file.url
+        except (AttributeError, TypeError):
+            pass
+        return None
+
+
+class ProtocolSummarySerializer(serializers.ModelSerializer):
+    """Serializer for protocol summary without items (list view)."""
+
+    class Meta:
+        model = Protocol
+        fields = ["id", "protocol_date", "group", "exported", "status"]
+    
+    def get_group_name(self, obj):
+        """Get group name from the related group object."""
+        try:
+            return obj.group.name if obj.group else None
+        except (AttributeError, TypeError):
+            return None
 
 
 class GroupSerializer(serializers.ModelSerializer):
@@ -31,11 +68,24 @@ class GroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = Group
         fields = ["id", "name", "address", "postalcode", "city", "members", "pdf_template", "color"]
+    
+    def to_representation(self, instance):
+        """Override to handle both real and demo objects."""
+        # Ensure pk is set for serialization
+        if not hasattr(instance, '_state'):
+            # Demo object - add minimal _state to make it compatible
+            instance._state = type('State', (), {'db': None})()
+        
+        return super().to_representation(instance)
 
     def get_members(self, obj):
-        residents = Resident.objects.filter(group=obj.id)
-
-        return ResidentSerializer(residents, many=True).data
+        """Get residents in this group."""
+        try:
+            residents = Resident.objects.filter(group=obj.id)
+            return ResidentSerializer(residents, many=True, context=self.context).data
+        except (AttributeError, TypeError):
+            # If it fails, return empty list
+            return []
     
     def update(self, instance, validated_data):
         """
@@ -63,14 +113,26 @@ class ResidentSerializer(serializers.ModelSerializer):
             "group",
             "picture",
         ]
+    
+    def to_representation(self, instance):
+        """Override to handle both real and demo objects."""
+        # Ensure pk is set for serialization
+        if not hasattr(instance, '_state'):
+            # Demo object - add minimal _state to make it compatible
+            instance._state = type('State', (), {'db': None})()
+        
+        return super().to_representation(instance)
 
     def get_picture(self, obj):
         """Return full URL for resident picture if available."""
-        if obj.picture:
-            request = self.context.get("request")
-            if request:
-                return request.build_absolute_uri(obj.picture.url)
-            return obj.picture.url
+        try:
+            if obj.picture:
+                request = self.context.get("request")
+                if request:
+                    return request.build_absolute_uri(obj.picture.url)
+                return obj.picture.url
+        except (AttributeError, TypeError):
+            pass
         return None
 
 
