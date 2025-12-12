@@ -1,11 +1,11 @@
-acme==5.1.0
+acme==5.2.1
 amqp==5.3.1
 asgiref==3.11.0
 async-timeout==5.0.1
 billiard==4.2.4
 black==25.11.0
 celery==5.6.0
-certbot==5.1.0
+certbot==5.2.1
 certifi==2025.11.12
 cffi==2.0.0
 chardet==5.2.0
@@ -35,11 +35,11 @@ packaging==25.0
 parsedatetime==2.6
 pathspec==0.12.1
 pillow==12.0.0
-platformdirs==4.5.0
+platformdirs==4.5.1
 prompt_toolkit==3.0.52
 pycparser==2.23
 pyOpenSSL==25.3.0
-pypdf==6.4.0
+pypdf==6.4.1
 pyRFC3339==2.1.0
 python-dateutil==2.9.0.post0
 python-decouple==3.8
@@ -52,7 +52,7 @@ sqlparse==0.5.4
 tomli==2.3.0
 typing_extensions==4.15.0
 tzdata==2025.2
-urllib3==2.5.0
+urllib3==2.6.0
 uwsgi==2.0.31 ; sys_platform == "linux"
 vine==5.1.0
 wcwidth==0.2.14
