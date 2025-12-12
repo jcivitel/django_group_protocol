@@ -14,11 +14,13 @@ from .views import (
     ResidentPictureView,
     GroupPDFTemplateView,
     ProtocolPresenceListView,
+    ProtocolExportedFileView,
     AdminUserListView,
     AdminUserDetailView,
     AdminUserGroupView,
     AdminUserPermissionView,
 )
+
 
 router = routers.DefaultRouter()
 router.register(r"protocol", views.ProtocolViewSet, "protocol")
@@ -34,6 +36,7 @@ urlpatterns = [
     path("v1/resident/<int:resident_id>/picture/", ResidentPictureView.as_view(), name="resident-picture"),
     path("v1/group/<int:group_id>/pdf_template/", GroupPDFTemplateView.as_view(), name="group-pdf-template"),
     path("v1/protocol/<int:protocol_id>/presence/", ProtocolPresenceListView.as_view(), name="protocol-presence-list"),
+    path("v1/protocol/<int:protocol_id>/exported_file/", ProtocolExportedFileView.as_view(), name="protocol-exported-file"),
     path("v1/presence/", ProtocolPresenceUpdateView.as_view(), name="update-presence"),
     path("v1/item/", ItemValuesUpdateView.as_view(), name="update-item"),
     path("v1/rotate_image/", RotateImageView.as_view(), name="rotate_image"),

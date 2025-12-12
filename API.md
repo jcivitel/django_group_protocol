@@ -8,6 +8,12 @@ https://your-server.com/api/
 
 ## Authentication
 
+The API requires **token-based authentication** for all endpoints.
+
+---
+
+## Authentication
+
 ### Token Authentication (Recommended for Mobile Apps)
 
 The API uses **token-based authentication**. After successful login, the server returns an authentication token that must be included in the `Authorization` header for all subsequent requests.
@@ -139,9 +145,9 @@ class ApiClient {
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `/api/v1/group/` | GET | ✅ | List accessible groups |
+| `/api/v1/group/` | GET | ❌ | List groups (demo data if not authenticated) |
 | `/api/v1/group/` | POST | ✅ | Create group (staff only) |
-| `/api/v1/group/{id}/` | GET | ✅ | Get group details |
+| `/api/v1/group/{id}/` | GET | ❌ | Get group details (demo data if not authenticated) |
 | `/api/v1/group/{id}/` | PUT | ✅ | Update group |
 | `/api/v1/group/{id}/` | DELETE | ✅ | Delete group (staff only) |
 | `/api/v1/group/{id}/pdf_template/` | POST | ✅ | Upload PDF template |
@@ -150,9 +156,9 @@ class ApiClient {
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `/api/v1/resident/` | GET | ✅ | List residents |
+| `/api/v1/resident/` | GET | ❌ | List residents (demo data if not authenticated) |
 | `/api/v1/resident/` | POST | ✅ | Create resident |
-| `/api/v1/resident/{id}/` | GET | ✅ | Get resident |
+| `/api/v1/resident/{id}/` | GET | ❌ | Get resident (demo data if not authenticated) |
 | `/api/v1/resident/{id}/` | PUT | ✅ | Update resident |
 | `/api/v1/resident/{id}/` | DELETE | ✅ | Delete resident |
 | `/api/v1/resident/{id}/picture/` | GET | ✅ | Get resident picture |
@@ -161,13 +167,16 @@ class ApiClient {
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `/api/v1/protocol/` | GET | ✅ | List protocols |
+| `/api/v1/protocol/` | GET | ❌ | List protocols (demo data if not authenticated) |
 | `/api/v1/protocol/` | POST | ✅ | Create protocol |
-| `/api/v1/protocol/{id}/` | GET | ✅ | Get protocol |
+| `/api/v1/protocol/{id}/` | GET | ❌ | Get protocol (demo data if not authenticated) |
 | `/api/v1/protocol/{id}/` | PUT | ✅ | Update protocol |
 | `/api/v1/protocol/{id}/` | DELETE | ✅ | Delete protocol |
-| `/api/v1/protocol/{id}/presence/` | GET | ✅ | Get presence entries |
+| `/api/v1/protocol/{id}/presence/` | GET | ❌ | Get presence entries (demo data if not authenticated) |
+| `/api/v1/protocol/{id}/exported_file/` | GET | ✅ | Get exported file |
+| `/api/v1/protocol/{id}/exported_file/` | POST | ✅ | Upload exported file |
 | `/api/v1/presence/` | POST | ✅ | Update presence |
+
 
 ### Protocol Item & Utility Endpoints
 
@@ -882,6 +891,7 @@ class ApiClient {
       "group": 1,
       "status": "draft",
       "exported": false,
+      "exported_file": null,
       "items": [
         {
           "id": 1,
@@ -978,6 +988,65 @@ class ApiClient {
 
 ---
 
+#### GET `/api/v1/protocol/{id}/exported_file/`
+
+**Purpose:** Get exported file for a protocol
+
+**Response (200 OK):**
+```json
+{
+  "id": 1,
+  "protocol_date": "2024-12-01",
+  "exported": true,
+  "file_url": "https://...",
+  "file_name": "protocol_2024_12_01.pdf"
+}
+```
+
+**Error (404 Not Found - if no file):**
+```json
+{
+  "error": "No exported file available for this protocol"
+}
+```
+
+---
+
+#### POST `/api/v1/protocol/{id}/exported_file/`
+
+**Purpose:** Upload exported file. Automatically sets `exported=true` and `status='exported'`
+
+**Request:** `multipart/form-data`
+- `exported_file`: File to upload
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Exported file uploaded successfully",
+  "protocol_id": 1,
+  "exported": true,
+  "status": "exported",
+  "file_url": "https://...",
+  "file_name": "protocol_2024_12_01.pdf"
+}
+```
+
+**Behavior:**
+- File upload automatically marks protocol as exported
+- `exported` is set to `true`
+- `status` is changed to `"exported"`
+- User cannot set `exported` directly via PUT endpoint
+
+**Error (403 Forbidden - no permission):**
+```json
+{
+  "error": "You do not have permission to upload files for this protocol"
+}
+```
+
+---
+
 #### POST `/api/v1/presence/`
 
 **Purpose:** Update presence entry
@@ -1000,6 +1069,96 @@ class ApiClient {
 ```
 
 ---
+
+### Demo Data for API Exploration
+
+All endpoints support **public access with demo data**. When you request an endpoint without authentication, you receive example data instead of real database records. This allows developers to explore and understand the API structure without leaking sensitive information.
+
+#### How It Works
+
+**Without Authentication Token:**
+```bash
+GET /api/v1/protocol/
+# Returns demo protocols
+```
+
+**With Authentication Token:**
+```bash
+GET /api/v1/protocol/
+Authorization: Token abc123...
+# Returns real protocols for the authenticated user
+```
+
+#### Demo Data Sources
+
+The following demo data is available for exploration:
+
+**Groups:**
+- Wohngruppe A (with demo residents)
+- Familienanaloge Wohngruppe 6b (with demo residents)
+
+**Residents:**
+- Max Mueller, Anna Schmidt, Peter Wagner, Lisa Fischer
+
+**Protocols:**
+- 3 example protocols with varying statuses (draft, ready, exported)
+- Example items showing typical protocol structure
+
+**Presence Entries:**
+- Example presence data for protocols
+
+#### Example: Unauthenticated Request
+
+**Request:**
+```bash
+curl https://your-server.com/api/v1/protocol/
+```
+
+**Response (200 OK):**
+```json
+{
+  "count": 3,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 1,
+      "protocol_date": "2024-12-01",
+      "group": 1,
+      "status": "draft",
+      "exported": false,
+      "exported_file": null,
+      "items": [
+        {
+          "id": 1,
+          "name": "Aktivitäten",
+          "position": 1,
+          "value": "Spaziergang im Park, Gesellschaftsspiele"
+        },
+        {
+          "id": 2,
+          "name": "Mahlzeiten",
+          "position": 2,
+          "value": "Frühstück: Müsli, Mittag: Pasta, Abend: Suppe"
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+#### Security Notes
+
+- ✅ Demo data contains **no real resident or user information**
+- ✅ Demo data is **read-only** (POST/PUT/DELETE require authentication)
+- ✅ All endpoints protect write operations with authentication
+- ✅ Useful for API documentation, testing, and frontend development
+
+---
+
+
 
 ### Protocol Items
 
@@ -1172,6 +1331,16 @@ List endpoints support pagination:
 ---
 
 ## Changelog
+
+### v1.8 (2025)
+- No changes in this version
+
+### v1.7 (2025)
+- **NEW:** Protocol exported file management
+- GET endpoint to retrieve exported file for a protocol
+- POST endpoint to upload exported file (only if exported=true)
+- New `exported_file` field in Protocol model for storing finalized documents
+- File upload restricted to exported protocols only
 
 ### v1.6 (2025)
 - **NEW:** System Setup & Initialization API

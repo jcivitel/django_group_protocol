@@ -115,7 +115,7 @@ class RandomizedFileName:
     def __call__(self, instance, filename):
         ext = os.path.splitext(filename)[1]  # Get file extension
         random_name = uuid.uuid4().hex  # Generate random string
-        return f"images/{random_name}{ext}"
+        return f"images/{random_name}{ext.lower()}"
 
 
 class Resident(models.Model):
@@ -162,6 +162,7 @@ class Protocol(models.Model):
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="draft")
     exported = models.BooleanField(default=False)
+    exported_file = models.FileField(upload_to="exports/", blank=True, null=True)
     
     objects = ProtocolManager()
 
