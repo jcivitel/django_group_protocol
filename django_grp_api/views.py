@@ -21,6 +21,7 @@ from django_grp_backend.models import (
 )
 from .serializers import (
     ProtocolSerializer,
+    ProtocolSummarySerializer,
     GroupSerializer,
     ResidentSerializer,
     ItemSerializer,
@@ -32,6 +33,7 @@ from .serializers import (
     UserDetailSerializer,
     UserPermissionSerializer,
 )
+
 
 
 class LoginView(APIView):
@@ -137,11 +139,12 @@ class LogoutView(APIView):
 
 class ProtocolViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
-    serializer_class = ProtocolSerializer
+    serializer_class = ProtocolSummarySerializer
 
     def get_queryset(self):
+        """Filter protocols by user group membership or staff status."""
         user = self.request.user
-        return Protocol.objects.filter(group__group_members=user)
+        return Protocol.objects.for_user(user)
 
     def perform_create(self, serializer):
         serializer.save()
@@ -152,7 +155,6 @@ class ProtocolViewSet(viewsets.ModelViewSet):
         if protocol.status == "exported":
             raise ValidationError("Exportierte Protokolle können nicht bearbeitet werden.")
         serializer.save()
-    
 
 
 class GroupViewSet(viewsets.ModelViewSet):
@@ -207,6 +209,14 @@ class ProtocolPresenceUpdateView(APIView):
                     {"error": "Exportierte Protokolle können nicht bearbeitet werden."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
+            
+            # Check access: user must be staff or member of protocol's group
+            is_member = protocol.group.group_members.filter(id=request.user.id).exists()
+            if not is_member and not request.user.is_staff:
+                return Response(
+                    {"error": "You do not have permission to access this protocol"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         except Protocol.DoesNotExist:
             return Response(
                 {"error": "Protocol not found"},
@@ -248,6 +258,14 @@ class ItemValuesUpdateView(APIView):
                         {"error": "Exportierte Protokolle können nicht bearbeitet werden."},
                         status=status.HTTP_403_FORBIDDEN,
                     )
+                
+                # Check access: user must be staff or member of protocol's group
+                is_member = protocol.group.group_members.filter(id=request.user.id).exists()
+                if not is_member and not request.user.is_staff:
+                    return Response(
+                        {"error": "You do not have permission to access this protocol"},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
             except Protocol.DoesNotExist:
                 return Response(
                     {"error": "Protocol not found"},
@@ -285,6 +303,14 @@ class ItemValuesUpdateView(APIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
             
+            # Check access: user must be staff or member of protocol's group
+            is_member = item.protocol.group.group_members.filter(id=request.user.id).exists()
+            if not is_member and not request.user.is_staff:
+                return Response(
+                    {"error": "You do not have permission to access this protocol"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            
             item.delete()
             return Response(
                 {"message": "Item deleted"},
@@ -310,6 +336,15 @@ class MentionAutocompleteView(APIView):
         
         try:
             protocol = Protocol.objects.get(id=protocol_id)
+            
+            # Check access: user must be staff or member of protocol's group
+            is_member = protocol.group.group_members.filter(id=request.user.id).exists()
+            if not is_member and not request.user.is_staff:
+                return Response(
+                    {"error": "You do not have permission to access this protocol"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            
             residents = Resident.objects.filter(group=protocol.group, moved_out_since__isnull=True)
             
             data = [
@@ -576,6 +611,111 @@ class GroupPDFTemplateView(APIView):
             )
 
 
+class ProtocolExportedFileView(APIView):
+    """
+    Get or upload exported protocol file.
+    
+    GET /api/v1/protocol/{id}/exported_file/
+    - Download the exported file (if available)
+    
+    POST /api/v1/protocol/{id}/exported_file/
+    - Upload exported file (automatically sets exported=true and status='exported')
+    
+    Request (multipart/form-data):
+    - exported_file: File
+    
+    Access Control:
+    - User must be staff OR member of protocol's group.group_members
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, protocol_id: int):
+        """Get exported file for a protocol."""
+        try:
+            protocol = Protocol.objects.get(id=protocol_id)
+        except Protocol.DoesNotExist:
+            return Response(
+                {"error": "Protocol not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check access: user must be staff or member of protocol's group
+        is_member = protocol.group.group_members.filter(id=request.user.id).exists()
+        if not is_member and not request.user.is_staff:
+            return Response(
+                {"error": "You do not have permission to view this protocol's exported file"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if not protocol.exported_file:
+            return Response(
+                {"error": "No exported file available for this protocol"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        return Response(
+            {
+                "id": protocol.id,
+                "protocol_date": protocol.protocol_date,
+                "exported": protocol.exported,
+                "file_url": request.build_absolute_uri(protocol.exported_file.url),
+                "file_name": protocol.exported_file.name.split('/')[-1],
+            },
+            status=status.HTTP_200_OK
+        )
+    
+    def post(self, request, protocol_id: int):
+        """Upload exported file. Automatically sets exported=true and status='exported'."""
+        try:
+            protocol = Protocol.objects.get(id=protocol_id)
+        except Protocol.DoesNotExist:
+            return Response(
+                {"error": "Protocol not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check access: user must be staff or member of protocol's group
+        is_member = protocol.group.group_members.filter(id=request.user.id).exists()
+        if not is_member and not request.user.is_staff:
+            return Response(
+                {"error": "You do not have permission to upload files for this protocol"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Check if file is provided
+        if "exported_file" not in request.FILES:
+            return Response(
+                {"error": "exported_file is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            exported_file = request.FILES["exported_file"]
+            protocol.exported_file = exported_file
+            # Automatically set exported=true and status='exported' when file is uploaded
+            protocol.exported = True
+            protocol.status = "exported"
+            protocol.save()
+            
+            return Response(
+                {
+                    "success": True,
+                    "message": "Exported file uploaded successfully",
+                    "protocol_id": protocol.id,
+                    "exported": protocol.exported,
+                    "status": protocol.status,
+                    "file_url": request.build_absolute_uri(protocol.exported_file.url),
+                    "file_name": protocol.exported_file.name.split('/')[-1],
+                },
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class ProtocolPresenceListView(APIView):
     """
     List all presence entries for a protocol.
@@ -600,7 +740,7 @@ class ProtocolPresenceListView(APIView):
     
     def get(self, request, protocol_id: int):
         try:
-            # Get protocol
+            # Get protocol for authenticated users
             try:
                 protocol = Protocol.objects.get(id=protocol_id)
             except Protocol.DoesNotExist:
