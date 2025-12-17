@@ -17,6 +17,7 @@ from django_grp_backend.models import (
     Resident,
     ProtocolPresence,
     ProtocolItem,
+    ProtocolTodo,
     UserPermission,
 )
 from .serializers import (
@@ -25,6 +26,7 @@ from .serializers import (
     GroupSerializer,
     ResidentSerializer,
     ItemSerializer,
+    ProtocolTodoSerializer,
     UserProfileSerializer,
     UserDetailedProfileSerializer,
     ProtocolPresenceSerializer,
@@ -192,6 +194,88 @@ class ResidentViewSet(viewsets.ModelViewSet):
         user = self.request.user
         return Resident.objects.for_user(user)
 
+
+
+
+class ProtocolTodoViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing protocol todos.
+    
+    Nested under /api/v1/protocol/{protocol_id}/todo/
+    
+    Supports:
+    - GET /api/v1/protocol/{protocol_id}/todo/ - List todos for protocol
+    - POST /api/v1/protocol/{protocol_id}/todo/ - Create new todo
+    - PUT /api/v1/protocol/{protocol_id}/todo/{id}/ - Update todo
+    - DELETE /api/v1/protocol/{protocol_id}/todo/{id}/ - Delete todo
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProtocolTodoSerializer
+    
+    def get_queryset(self):
+        """Filter todos by protocol_id from URL parameter."""
+        protocol_id = self.kwargs.get('protocol_id')
+        user = self.request.user
+        
+        # Get the protocol and check access
+        try:
+            protocol = Protocol.objects.get(id=protocol_id)
+            # Check if user has access to this protocol
+            is_member = protocol.group.group_members.filter(id=user.id).exists()
+            if not is_member and not user.is_staff:
+                return ProtocolTodo.objects.none()
+            
+            return ProtocolTodo.objects.filter(protocol_id=protocol_id)
+        except Protocol.DoesNotExist:
+            return ProtocolTodo.objects.none()
+    
+    def perform_create(self, serializer):
+        """Create todo and automatically set protocol from URL."""
+        protocol_id = self.kwargs.get('protocol_id')
+        
+        # Verify protocol exists and user has access
+        try:
+            protocol = Protocol.objects.get(id=protocol_id)
+            is_member = protocol.group.group_members.filter(id=self.request.user.id).exists()
+            if not is_member and not self.request.user.is_staff:
+                raise ValidationError("Sie haben keine Berechtigung fuer dieses Protokoll.")
+            
+            # Check if protocol is exported (read-only)
+            if protocol.status == "exported":
+                raise ValidationError("Exportierte Protokolle koennen nicht bearbeitet werden.")
+            
+            serializer.save(protocol_id=protocol_id)
+        except Protocol.DoesNotExist:
+            raise ValidationError("Protokoll nicht gefunden.")
+    
+    def perform_update(self, serializer):
+        """Update todo with validation."""
+        protocol_id = self.kwargs.get('protocol_id')
+        
+        # Verify protocol exists and user has access
+        try:
+            protocol = Protocol.objects.get(id=protocol_id)
+            is_member = protocol.group.group_members.filter(id=self.request.user.id).exists()
+            if not is_member and not self.request.user.is_staff:
+                raise ValidationError("Sie haben keine Berechtigung fuer dieses Protokoll.")
+            
+            # Check if protocol is exported (read-only)
+            if protocol.status == "exported":
+                raise ValidationError("Exportierte Protokolle koennen nicht bearbeitet werden.")
+            
+            serializer.save()
+        except Protocol.DoesNotExist:
+            raise ValidationError("Protokoll nicht gefunden.")
+    
+    def perform_destroy(self, instance):
+        """Delete todo with validation."""
+        protocol = instance.protocol
+        
+        # Check if protocol is exported (read-only)
+        if protocol.status == "exported":
+            raise ValidationError("Exportierte Protokolle koennen nicht bearbeitet werden.")
+        
+        instance.delete()
 
 class ProtocolPresenceUpdateView(APIView):
     permission_classes = [IsAuthenticated]

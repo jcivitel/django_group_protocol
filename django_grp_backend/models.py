@@ -237,6 +237,46 @@ class UserPermission(models.Model):
         return f"{self.user.username} - {self.group.name} - {self.resource}: {self.permission}"
 
 
+class ProtocolTodo(models.Model):
+    """
+    Todo items for protocols.
+    
+    Tracks tasks that need to be completed for a protocol:
+    - was: What needs to be done (German: "Was")
+    - wer: Who is responsible (German: "Wer")
+    - wann: When it's due (German: "Wann")
+    """
+    protocol = models.ForeignKey(
+        Protocol,
+        on_delete=models.CASCADE,
+        related_name="todos"
+    )
+    was = models.TextField(
+        verbose_name="Was",
+        help_text="What needs to be done"
+    )
+    wer = models.CharField(
+        max_length=255,
+        verbose_name="Wer",
+        help_text="Who is responsible"
+    )
+    wann = models.DateTimeField(
+        verbose_name="Wann",
+        help_text="When it's due"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    position = models.IntegerField(default=0)
+    
+    class Meta:
+        ordering = ["position", "wann"]
+        verbose_name = "Protocol Todo"
+        verbose_name_plural = "Protocol Todos"
+    
+    def __str__(self) -> str:
+        return f"{self.protocol} - {self.was[:50]}"
+
+
 @receiver(post_save, sender=Protocol)
 def create_protocol_presence(sender, instance, created, **kwargs):
     if created:
