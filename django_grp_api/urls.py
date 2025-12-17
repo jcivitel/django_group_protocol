@@ -1,5 +1,6 @@
 from django.urls import path, include
 from rest_framework import routers
+from rest_framework_nested import routers as nested_routers
 
 from . import views
 from .views import (
@@ -27,12 +28,17 @@ router.register(r"protocol", views.ProtocolViewSet, "protocol")
 router.register(r"group", views.GroupViewSet, "group")
 router.register(r"resident", views.ResidentViewSet, "resident")
 
+# Nested router for protocol todos
+protocol_router = nested_routers.NestedSimpleRouter(router, r"protocol", lookup="protocol")
+protocol_router.register(r"todo", views.ProtocolTodoViewSet, basename="protocol-todo")
+
 urlpatterns = [
     path("v1/auth/login/", LoginView.as_view(), name="auth-login"),
     path("v1/auth/logout/", LogoutView.as_view(), name="auth-logout"),
     path("v1/user/profile/", UserProfileView.as_view(), name="user-profile"),
     path("v1/user/me/", UserMeView.as_view(), name="user-me"),
     path("v1/", include(router.urls)),
+    path("v1/", include(protocol_router.urls)),
     path("v1/resident/<int:resident_id>/picture/", ResidentPictureView.as_view(), name="resident-picture"),
     path("v1/group/<int:group_id>/pdf_template/", GroupPDFTemplateView.as_view(), name="group-pdf-template"),
     path("v1/protocol/<int:protocol_id>/presence/", ProtocolPresenceListView.as_view(), name="protocol-presence-list"),

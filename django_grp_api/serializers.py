@@ -4,6 +4,7 @@ from django.contrib.auth.models import User
 from django_grp_backend.models import (
     Protocol,
     ProtocolItem,
+    ProtocolTodo,
     Group,
     Resident,
     ProtocolPresence,
@@ -15,6 +16,15 @@ class ProtocolItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProtocolItem
         fields = ["id", "name", "position", "value"]
+
+
+class ProtocolTodoSerializer(serializers.ModelSerializer):
+    """Serializer for ProtocolTodo model."""
+    
+    class Meta:
+        model = ProtocolTodo
+        fields = ["id", "protocol", "was", "wer", "wann", "position", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at", "protocol"]
 
 
 class ProtocolSerializer(serializers.ModelSerializer):
