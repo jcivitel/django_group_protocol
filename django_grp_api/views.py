@@ -141,7 +141,12 @@ class LogoutView(APIView):
 
 class ProtocolViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
-    serializer_class = ProtocolSummarySerializer
+    
+    def get_serializer_class(self):
+        """Use different serializers for list vs detail."""
+        if self.action == 'list':
+            return ProtocolSummarySerializer
+        return ProtocolSerializer
 
     def get_queryset(self):
         """Filter protocols by user group membership or staff status."""
@@ -214,7 +219,7 @@ class ProtocolTodoViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter todos by protocol_id from URL parameter."""
-        protocol_id = self.kwargs.get('protocol_id')
+        protocol_id = self.kwargs.get('protocol_pk')
         user = self.request.user
         
         # Get the protocol and check access
@@ -231,41 +236,24 @@ class ProtocolTodoViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """Create todo and automatically set protocol from URL."""
-        protocol_id = self.kwargs.get('protocol_id')
+        protocol_id = self.kwargs.get('protocol_pk')
         
-        # Verify protocol exists and user has access
+        # Verify protocol exists
         try:
             protocol = Protocol.objects.get(id=protocol_id)
-            is_member = protocol.group.group_members.filter(id=self.request.user.id).exists()
-            if not is_member and not self.request.user.is_staff:
-                raise ValidationError("Sie haben keine Berechtigung fuer dieses Protokoll.")
-            
-            # Check if protocol is exported (read-only)
-            if protocol.status == "exported":
-                raise ValidationError("Exportierte Protokolle koennen nicht bearbeitet werden.")
-            
-            serializer.save(protocol_id=protocol_id)
         except Protocol.DoesNotExist:
-            raise ValidationError("Protokoll nicht gefunden.")
-    
-    def perform_update(self, serializer):
-        """Update todo with validation."""
-        protocol_id = self.kwargs.get('protocol_id')
+            raise ValidationError(f"Protokoll mit ID {protocol_id} nicht gefunden.")
         
-        # Verify protocol exists and user has access
-        try:
-            protocol = Protocol.objects.get(id=protocol_id)
-            is_member = protocol.group.group_members.filter(id=self.request.user.id).exists()
-            if not is_member and not self.request.user.is_staff:
-                raise ValidationError("Sie haben keine Berechtigung fuer dieses Protokoll.")
-            
-            # Check if protocol is exported (read-only)
-            if protocol.status == "exported":
-                raise ValidationError("Exportierte Protokolle koennen nicht bearbeitet werden.")
-            
-            serializer.save()
-        except Protocol.DoesNotExist:
-            raise ValidationError("Protokoll nicht gefunden.")
+        # Check user access
+        is_member = protocol.group.group_members.filter(id=self.request.user.id).exists()
+        if not is_member and not self.request.user.is_staff:
+            raise ValidationError(f"Sie sind nicht Mitglied der Gruppe '{protocol.group.name}'.")
+        
+        # Check if protocol is exported (read-only)
+        if protocol.status == "exported":
+            raise ValidationError("Exportierte Protokolle können nicht bearbeitet werden.")
+        
+        serializer.save(protocol_id=protocol_id)
     
     def perform_destroy(self, instance):
         """Delete todo with validation."""
@@ -328,7 +316,7 @@ class ItemValuesUpdateView(APIView):
     def post(self, request):
         serializer = ItemSerializer(data=request.data)
         if serializer.is_valid():
-            item_id = request.data.get("item_id")
+            item_id = request.data.get("id") or request.data.get("item_id")
             name = serializer.data.get("name")
             protocol_id = serializer.data.get("protocol")
             value = serializer.data.get("value")
@@ -359,17 +347,29 @@ class ItemValuesUpdateView(APIView):
             if item_id == "":
                 item_id = None
 
-            ProtocolItem.objects.update_or_create(
-                id=item_id,
-                defaults={
-                    "protocol_id": protocol_id,
-                    "name": name,
-                    "value": value,
-                    "position": position,
-                },
-            )
+            # Fix: Separate CREATE and UPDATE logic
+            # BUG: update_or_create(id=None) doesn't work - it tries to update instead of create
+            if item_id:
+                # UPDATE existing item
+                ProtocolItem.objects.filter(id=item_id).update(
+                    protocol_id=protocol_id,
+                    name=name,
+                    value=value,
+                    position=position,
+                )
+                message = "Item updated"
+            else:
+                # CREATE new item
+                ProtocolItem.objects.create(
+                    protocol_id=protocol_id,
+                    name=name,
+                    value=value,
+                    position=position,
+                )
+                message = "Item created"
+            
             return Response(
-                {"message": "Item updated"},
+                {"message": message},
                 status=status.HTTP_200_OK,
             )
         return Response(

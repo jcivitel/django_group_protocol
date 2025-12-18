@@ -20,10 +20,11 @@ class ProtocolItemSerializer(serializers.ModelSerializer):
 
 class ProtocolTodoSerializer(serializers.ModelSerializer):
     """Serializer for ProtocolTodo model."""
+    protocol = serializers.IntegerField(source='protocol.id', read_only=True)
     
     class Meta:
         model = ProtocolTodo
-        fields = ["id", "protocol", "was", "wer", "wann", "position", "created_at", "updated_at"]
+        fields = ["id", "protocol", "what", "who", "when", "position", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at", "protocol"]
 
 
