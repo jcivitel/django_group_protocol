@@ -242,26 +242,26 @@ class ProtocolTodo(models.Model):
     Todo items for protocols.
     
     Tracks tasks that need to be completed for a protocol:
-    - was: What needs to be done (German: "Was")
-    - wer: Who is responsible (German: "Wer")
-    - wann: When it's due (German: "Wann")
+    - what: What needs to be done
+    - who: Who is responsible
+    - when: When it's due
     """
     protocol = models.ForeignKey(
         Protocol,
         on_delete=models.CASCADE,
         related_name="todos"
     )
-    was = models.TextField(
-        verbose_name="Was",
+    what = models.TextField(
+        verbose_name="What",
         help_text="What needs to be done"
     )
-    wer = models.CharField(
+    who = models.CharField(
         max_length=255,
-        verbose_name="Wer",
+        verbose_name="Who",
         help_text="Who is responsible"
     )
-    wann = models.DateTimeField(
-        verbose_name="Wann",
+    when = models.DateTimeField(
+        verbose_name="When",
         help_text="When it's due"
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -269,12 +269,12 @@ class ProtocolTodo(models.Model):
     position = models.IntegerField(default=0)
     
     class Meta:
-        ordering = ["position", "wann"]
+        ordering = ["position", "when"]
         verbose_name = "Protocol Todo"
         verbose_name_plural = "Protocol Todos"
     
     def __str__(self) -> str:
-        return f"{self.protocol} - {self.was[:50]}"
+        return f"{self.protocol} - {self.what[:50]}"
 
 
 @receiver(post_save, sender=Protocol)
