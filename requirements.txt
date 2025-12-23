@@ -57,4 +57,4 @@ uwsgi==2.0.31 ; sys_platform == "linux"
 vine==5.1.0
 wcwidth==0.2.14
 whitenoise==6.11.0
-drf-nested-routers==0.93.4
+drf-nested-routers==0.95.0
