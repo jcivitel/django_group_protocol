@@ -52,7 +52,7 @@ sqlparse==0.5.5
 tomli==2.3.0
 typing_extensions==4.15.0
 tzdata==2025.3
-urllib3==2.6.2
+urllib3==2.6.3
 uwsgi==2.0.31 ; sys_platform == "linux"
 vine==5.1.0
 wcwidth==0.2.14
