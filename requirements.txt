@@ -55,6 +55,6 @@ tzdata==2025.3
 urllib3==2.6.3
 uwsgi==2.0.31 ; sys_platform == "linux"
 vine==5.1.0
-wcwidth==0.4.0
+wcwidth==0.5.3
 whitenoise==6.11.0
 drf-nested-routers==0.95.0
