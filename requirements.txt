@@ -33,7 +33,7 @@ mypy-extensions==1.1.0
 mysqlclient==2.2.7
 packaging==26.0
 parsedatetime==2.6
-pathspec==1.0.3
+pathspec==1.0.4
 pillow==12.1.0
 platformdirs==4.5.1
 prompt_toolkit==3.0.52
