@@ -19,7 +19,7 @@ ConfigArgParse==1.7.5
 configobj==5.0.9
 cryptography==49.0.0
 distro==1.9.0
-Django==6.0.6
+Django==6.0.7
 django-auto-logout==0.5.1
 django-cors-headers==4.9.0
 django-redis==7.0.0
