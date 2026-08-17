@@ -48,7 +48,7 @@ redis==8.1.0
 reportlab==5.0.0
 requests==2.34.2
 six==1.17.0
-sqlparse==0.5.5
+sqlparse==0.6.0
 tomli==2.4.1
 typing_extensions==4.16.0
 tzdata==2026.3
