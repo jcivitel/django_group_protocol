@@ -30,6 +30,16 @@ coverage.xml
 .DS_Store
 media/
 staticfiles/
+
+# Das Datenverzeichnis der Datenbank aus utils/docker-compose.yml. Ohne
+# diese Zeile wandern rund 150 MB echter Bewohnerdaten in den Build-Kontext
+# und von dort in jede Schicht des Images - ein Image, das man weitergibt.
+utils/
+
+# Gehoeren zum Bauen, nicht ins Gebaute.
+Dockerfile
+docker-compose.yml
+entry.sh.bak
 db.sqlite3
 *.db
 node_modules/
