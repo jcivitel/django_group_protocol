@@ -1,6 +1,8 @@
 FROM python:3.12-alpine AS builder
 
-RUN apk add --no-cache libgcc mariadb-connector-c pkgconf mariadb-dev \
+# build-base liefert gcc und musl-dev: mysqlclient und uwsgi bringen keine
+# fertigen Wheels fuer musl mit und muessen hier uebersetzt werden.
+RUN apk add --no-cache build-base libgcc mariadb-connector-c pkgconf mariadb-dev \
     postgresql-dev linux-headers curl
 
 WORKDIR /opt/grpproto/

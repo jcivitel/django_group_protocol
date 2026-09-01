@@ -22,6 +22,15 @@ SECRET_KEY = config(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", default=False, cast=bool)
 
+# Liefert Django die Dateien aus MEDIA_ROOT selbst aus?
+#
+# Im Betrieb gehoert das vor die Anwendung: ein Reverse Proxy liest
+# MEDIA_ROOT schneller und beherrscht Range-Requests. Wo keiner steht - etwa
+# im Docker-Compose dieses Projekts - muessen Bewohnerfotos trotzdem
+# ankommen. Vorgabe ist DEBUG, damit sich an bestehenden Aufbauten nichts
+# aendert.
+SERVE_MEDIA = config("SERVE_MEDIA", default=DEBUG, cast=bool)
+
 CORS_ALLOWED_ORIGINS = config("CORS_ALLOWED_ORIGINS", default="", cast=Csv())
 CSRF_TRUSTED_ORIGINS = config("CSRF_TRUSTED_ORIGINS", default="", cast=Csv())
 
