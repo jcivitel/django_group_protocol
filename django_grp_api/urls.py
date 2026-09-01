@@ -5,7 +5,6 @@ from rest_framework_nested import routers as nested_routers
 from django_grp_care import api as care_api
 from django_grp_duty import api as duty_api
 from django_grp_org import api as org_api
-from django_grp_org import auth_views as org_auth
 
 from . import views
 from .views import (
@@ -96,19 +95,6 @@ duty_router.register(r"shift", duty_api.ShiftViewSet, basename="duty-shift")
 urlpatterns = [
     path("v1/auth/login/", LoginView.as_view(), name="auth-login"),
     path("v1/auth/logout/", LogoutView.as_view(), name="auth-logout"),
-    # Anmeldewege und Single Sign-on (Phase 0)
-    path("v1/auth/methods/", org_auth.AuthMethodsView.as_view(), name="auth-methods"),
-    path("v1/auth/oidc/start/", org_auth.OIDCStartView.as_view(), name="oidc-start"),
-    path(
-        "v1/auth/oidc/callback/",
-        org_auth.OIDCCallbackView.as_view(),
-        name="oidc-callback",
-    ),
-    path(
-        "v1/auth/oidc/exchange/",
-        org_auth.OIDCExchangeView.as_view(),
-        name="oidc-exchange",
-    ),
     path("v1/user/profile/", UserProfileView.as_view(), name="user-profile"),
     path("v1/user/me/", UserMeView.as_view(), name="user-me"),
     path("v1/", include(router.urls)),
