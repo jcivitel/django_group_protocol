@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from django_grp_backend.models import ProtocolObservation
+from django_grp_org.tenancy import limit_to_tenant
 
 from .models import (
     CaseFile,
@@ -27,7 +28,9 @@ from .models import (
 
 def accessible_case_files(user):
     """Fallakten, die diese Person sehen darf."""
-    queryset = CaseFile.objects.select_related("resident", "responsible")
+    queryset = limit_to_tenant(
+        CaseFile.objects.select_related("resident", "responsible"), user
+    )
     if user.is_staff:
         return queryset
     return queryset.filter(resident__group__group_members=user).distinct()
