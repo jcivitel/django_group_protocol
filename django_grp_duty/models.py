@@ -12,10 +12,11 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django.utils import timezone
 
 from django_grp_org.models import Department, Employee, Provider, fk
-
 
 # ============================================================ Phase 2
 
@@ -217,9 +218,14 @@ class Absence(models.Model):
     start_date = models.DateField(verbose_name="Von")
     end_date = models.DateField(verbose_name="Bis")
     status = models.CharField(
-        max_length=20, choices=STATUS_CHOICES, default="requested", verbose_name="Status"
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="requested",
+        verbose_name="Status",
     )
-    note = models.CharField(max_length=200, blank=True, default="", verbose_name="Anmerkung")
+    note = models.CharField(
+        max_length=200, blank=True, default="", verbose_name="Anmerkung"
+    )
     decided_by = fk(
         Employee,
         related_name="decided_absences",
@@ -278,7 +284,9 @@ class TimeEntry(models.Model):
     date = models.DateField(verbose_name="Datum")
     start_time = models.TimeField(verbose_name="Beginn")
     end_time = models.TimeField(verbose_name="Ende")
-    break_minutes = models.PositiveIntegerField(default=0, verbose_name="Pause in Minuten")
+    break_minutes = models.PositiveIntegerField(
+        default=0, verbose_name="Pause in Minuten"
+    )
     category = models.CharField(
         max_length=20, choices=CATEGORY_CHOICES, default="work", verbose_name="Art"
     )
@@ -336,12 +344,20 @@ class TimeAccount(models.Model):
         verbose_name="Übertrag aus Vormonat",
     )
     on_call_hours = models.DecimalField(
-        max_digits=7, decimal_places=2, default=Decimal("0"), verbose_name="Bereitschaft"
+        max_digits=7,
+        decimal_places=2,
+        default=Decimal("0"),
+        verbose_name="Bereitschaft",
     )
     night_hours = models.DecimalField(
-        max_digits=7, decimal_places=2, default=Decimal("0"), verbose_name="Nachtstunden"
+        max_digits=7,
+        decimal_places=2,
+        default=Decimal("0"),
+        verbose_name="Nachtstunden",
     )
-    closed_at = models.DateTimeField(blank=True, null=True, verbose_name="Abgeschlossen am")
+    closed_at = models.DateTimeField(
+        blank=True, null=True, verbose_name="Abgeschlossen am"
+    )
 
     class Meta:
         unique_together = ("employee", "year", "month")
@@ -358,3 +374,21 @@ class TimeAccount(models.Model):
         return (self.actual_hours - self.target_hours + self.carry_over).quantize(
             Decimal("0.01")
         )
+
+
+# ============================================================ Signale
+
+
+@receiver(post_save, sender=Absence)
+def release_shifts_when_approved(sender, instance, **kwargs):
+    """
+    Genehmigte Abwesenheiten geben die betroffenen Dienste frei.
+
+    Der Dienst bleibt bestehen und wird nur unbesetzt - so bleibt der Bedarf
+    im Plan sichtbar, statt stillschweigend zu verschwinden.
+    """
+    if instance.status != "approved":
+        return
+    from .services import release_shifts_for_absence
+
+    release_shifts_for_absence(instance)

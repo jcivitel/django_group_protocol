@@ -177,9 +177,7 @@ class Role(models.Model):
         verbose_name="Bereich",
     )
     valid_from = models.DateField(verbose_name="Gültig ab")
-    valid_to = models.DateField(
-        blank=True, null=True, verbose_name="Gültig bis"
-    )
+    valid_to = models.DateField(blank=True, null=True, verbose_name="Gültig bis")
 
     class Meta:
         ordering = ["employee", "role"]
@@ -223,7 +221,10 @@ class WorkTimeModel(models.Model):
         max_digits=5, decimal_places=2, verbose_name="Wochenstunden"
     )
     days_per_week = models.DecimalField(
-        max_digits=3, decimal_places=1, default=Decimal("5.0"), verbose_name="Tage pro Woche"
+        max_digits=3,
+        decimal_places=1,
+        default=Decimal("5.0"),
+        verbose_name="Tage pro Woche",
     )
     vacation_days = models.PositiveIntegerField(
         default=30, verbose_name="Urlaubstage pro Jahr"
@@ -264,7 +265,9 @@ class Employee(models.Model):
     first_name = models.CharField(max_length=100, verbose_name="Vorname")
     last_name = models.CharField(max_length=100, verbose_name="Nachname")
     email = models.EmailField(blank=True, default="", verbose_name="E-Mail")
-    phone = models.CharField(max_length=40, blank=True, default="", verbose_name="Telefon")
+    phone = models.CharField(
+        max_length=40, blank=True, default="", verbose_name="Telefon"
+    )
     birth_date = models.DateField(blank=True, null=True, verbose_name="Geburtsdatum")
     hired_on = models.DateField(verbose_name="Eintritt")
     left_on = models.DateField(blank=True, null=True, verbose_name="Austritt")
@@ -341,7 +344,10 @@ class Contract(models.Model):
 
     employee = fk(Employee, related_name="contracts", verbose_name="Mitarbeitende")
     kind = models.CharField(
-        max_length=20, choices=KIND_CHOICES, default="permanent", verbose_name="Vertragsart"
+        max_length=20,
+        choices=KIND_CHOICES,
+        default="permanent",
+        verbose_name="Vertragsart",
     )
     weekly_hours = models.DecimalField(
         max_digits=5, decimal_places=2, verbose_name="Wochenstunden"

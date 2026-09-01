@@ -11,225 +11,674 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('django_grp_backend', '0022_default_protocol_templates'),
+        ("django_grp_backend", "0022_default_protocol_templates"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='Facility',
+            name="Facility",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=150, verbose_name='Name')),
-                ('kind', models.CharField(choices=[('residential', 'Wohngruppe (stationär)'), ('day', 'Tagesgruppe (teilstationär)'), ('outpatient', 'Ambulantes Angebot'), ('administration', 'Verwaltung')], default='residential', max_length=20, verbose_name='Art')),
-                ('is_active', models.BooleanField(default=True, verbose_name='Aktiv')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(max_length=150, verbose_name="Name")),
+                (
+                    "kind",
+                    models.CharField(
+                        choices=[
+                            ("residential", "Wohngruppe (stationär)"),
+                            ("day", "Tagesgruppe (teilstationär)"),
+                            ("outpatient", "Ambulantes Angebot"),
+                            ("administration", "Verwaltung"),
+                        ],
+                        default="residential",
+                        max_length=20,
+                        verbose_name="Art",
+                    ),
+                ),
+                ("is_active", models.BooleanField(default=True, verbose_name="Aktiv")),
             ],
             options={
-                'verbose_name': 'Einrichtung',
-                'verbose_name_plural': 'Einrichtungen',
-                'ordering': ['site', 'name'],
+                "verbose_name": "Einrichtung",
+                "verbose_name_plural": "Einrichtungen",
+                "ordering": ["site", "name"],
             },
         ),
         migrations.CreateModel(
-            name='Provider',
+            name="Provider",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=150, verbose_name='Name')),
-                ('short_name', models.CharField(blank=True, default='', max_length=30, verbose_name='Kürzel')),
-                ('address', models.CharField(blank=True, default='', max_length=150)),
-                ('postalcode', models.CharField(blank=True, default='', max_length=10)),
-                ('city', models.CharField(blank=True, default='', max_length=100)),
-                ('is_active', models.BooleanField(default=True, verbose_name='Aktiv')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(max_length=150, verbose_name="Name")),
+                (
+                    "short_name",
+                    models.CharField(
+                        blank=True, default="", max_length=30, verbose_name="Kürzel"
+                    ),
+                ),
+                ("address", models.CharField(blank=True, default="", max_length=150)),
+                ("postalcode", models.CharField(blank=True, default="", max_length=10)),
+                ("city", models.CharField(blank=True, default="", max_length=100)),
+                ("is_active", models.BooleanField(default=True, verbose_name="Aktiv")),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                'verbose_name': 'Träger',
-                'verbose_name_plural': 'Träger',
-                'ordering': ['name'],
+                "verbose_name": "Träger",
+                "verbose_name_plural": "Träger",
+                "ordering": ["name"],
             },
         ),
         migrations.CreateModel(
-            name='Qualification',
+            name="Qualification",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=120, unique=True, verbose_name='Bezeichnung')),
-                ('is_specialist', models.BooleanField(default=True, help_text='Zählt für die Fachkraftquote', verbose_name='Fachkraftqualifikation')),
-                ('description', models.CharField(blank=True, default='', max_length=200)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "name",
+                    models.CharField(
+                        max_length=120, unique=True, verbose_name="Bezeichnung"
+                    ),
+                ),
+                (
+                    "is_specialist",
+                    models.BooleanField(
+                        default=True,
+                        help_text="Zählt für die Fachkraftquote",
+                        verbose_name="Fachkraftqualifikation",
+                    ),
+                ),
+                (
+                    "description",
+                    models.CharField(blank=True, default="", max_length=200),
+                ),
             ],
             options={
-                'verbose_name': 'Qualifikation',
-                'verbose_name_plural': 'Qualifikationen',
-                'ordering': ['name'],
+                "verbose_name": "Qualifikation",
+                "verbose_name_plural": "Qualifikationen",
+                "ordering": ["name"],
             },
         ),
         migrations.CreateModel(
-            name='Employee',
+            name="Employee",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('personnel_number', models.CharField(blank=True, default='', max_length=30, verbose_name='Personalnummer')),
-                ('first_name', models.CharField(max_length=100, verbose_name='Vorname')),
-                ('last_name', models.CharField(max_length=100, verbose_name='Nachname')),
-                ('email', models.EmailField(blank=True, default='', max_length=254, verbose_name='E-Mail')),
-                ('phone', models.CharField(blank=True, default='', max_length=40, verbose_name='Telefon')),
-                ('birth_date', models.DateField(blank=True, null=True, verbose_name='Geburtsdatum')),
-                ('hired_on', models.DateField(verbose_name='Eintritt')),
-                ('left_on', models.DateField(blank=True, null=True, verbose_name='Austritt')),
-                ('notes', models.TextField(blank=True, default='', verbose_name='Notizen')),
-                ('user', models.OneToOneField(blank=True, db_constraint=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='employee', to=settings.AUTH_USER_MODEL, verbose_name='Systemkonto')),
-                ('provider', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='employees', to='django_grp_org.provider', verbose_name='Träger')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "personnel_number",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        max_length=30,
+                        verbose_name="Personalnummer",
+                    ),
+                ),
+                (
+                    "first_name",
+                    models.CharField(max_length=100, verbose_name="Vorname"),
+                ),
+                (
+                    "last_name",
+                    models.CharField(max_length=100, verbose_name="Nachname"),
+                ),
+                (
+                    "email",
+                    models.EmailField(
+                        blank=True, default="", max_length=254, verbose_name="E-Mail"
+                    ),
+                ),
+                (
+                    "phone",
+                    models.CharField(
+                        blank=True, default="", max_length=40, verbose_name="Telefon"
+                    ),
+                ),
+                (
+                    "birth_date",
+                    models.DateField(
+                        blank=True, null=True, verbose_name="Geburtsdatum"
+                    ),
+                ),
+                ("hired_on", models.DateField(verbose_name="Eintritt")),
+                (
+                    "left_on",
+                    models.DateField(blank=True, null=True, verbose_name="Austritt"),
+                ),
+                (
+                    "notes",
+                    models.TextField(blank=True, default="", verbose_name="Notizen"),
+                ),
+                (
+                    "user",
+                    models.OneToOneField(
+                        blank=True,
+                        db_constraint=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="employee",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="Systemkonto",
+                    ),
+                ),
+                (
+                    "provider",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="employees",
+                        to="django_grp_org.provider",
+                        verbose_name="Träger",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Mitarbeitende',
-                'verbose_name_plural': 'Mitarbeitende',
-                'ordering': ['last_name', 'first_name'],
+                "verbose_name": "Mitarbeitende",
+                "verbose_name_plural": "Mitarbeitende",
+                "ordering": ["last_name", "first_name"],
             },
         ),
         migrations.CreateModel(
-            name='Contract',
+            name="Contract",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('kind', models.CharField(choices=[('permanent', 'Unbefristet'), ('temporary', 'Befristet'), ('minijob', 'Geringfügig'), ('freelance', 'Honorarkraft'), ('trainee', 'Ausbildung / Praktikum')], default='permanent', max_length=20, verbose_name='Vertragsart')),
-                ('weekly_hours', models.DecimalField(decimal_places=2, max_digits=5, verbose_name='Wochenstunden')),
-                ('pay_grade', models.CharField(blank=True, default='', help_text='z. B. TVöD SuE S 11b, Stufe 3', max_length=40, verbose_name='Entgeltgruppe')),
-                ('valid_from', models.DateField(verbose_name='Gültig ab')),
-                ('valid_to', models.DateField(blank=True, null=True, verbose_name='Gültig bis')),
-                ('notes', models.CharField(blank=True, default='', max_length=200)),
-                ('employee', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='contracts', to='django_grp_org.employee', verbose_name='Mitarbeitende')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "kind",
+                    models.CharField(
+                        choices=[
+                            ("permanent", "Unbefristet"),
+                            ("temporary", "Befristet"),
+                            ("minijob", "Geringfügig"),
+                            ("freelance", "Honorarkraft"),
+                            ("trainee", "Ausbildung / Praktikum"),
+                        ],
+                        default="permanent",
+                        max_length=20,
+                        verbose_name="Vertragsart",
+                    ),
+                ),
+                (
+                    "weekly_hours",
+                    models.DecimalField(
+                        decimal_places=2, max_digits=5, verbose_name="Wochenstunden"
+                    ),
+                ),
+                (
+                    "pay_grade",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        help_text="z. B. TVöD SuE S 11b, Stufe 3",
+                        max_length=40,
+                        verbose_name="Entgeltgruppe",
+                    ),
+                ),
+                ("valid_from", models.DateField(verbose_name="Gültig ab")),
+                (
+                    "valid_to",
+                    models.DateField(blank=True, null=True, verbose_name="Gültig bis"),
+                ),
+                ("notes", models.CharField(blank=True, default="", max_length=200)),
+                (
+                    "employee",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="contracts",
+                        to="django_grp_org.employee",
+                        verbose_name="Mitarbeitende",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Vertrag',
-                'verbose_name_plural': 'Verträge',
-                'ordering': ['-valid_from'],
+                "verbose_name": "Vertrag",
+                "verbose_name_plural": "Verträge",
+                "ordering": ["-valid_from"],
             },
         ),
         migrations.CreateModel(
-            name='Department',
+            name="Department",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=150, verbose_name='Name')),
-                ('minimum_staff', models.PositiveIntegerField(default=1, help_text='Wie viele Personen müssen im Dienst gleichzeitig anwesend sein', verbose_name='Mindestbesetzung')),
-                ('specialist_ratio', models.PositiveIntegerField(default=50, help_text='Anteil der Dienststunden, der von Fachkräften geleistet werden muss', verbose_name='Fachkraftquote in Prozent')),
-                ('group', models.ForeignKey(blank=True, db_constraint=False, help_text='Verknüpfung zur Wohn-/Tagesgruppe, sofern vorhanden', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='departments', to='django_grp_backend.group', verbose_name='Gruppe')),
-                ('facility', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='departments', to='django_grp_org.facility', verbose_name='Einrichtung')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(max_length=150, verbose_name="Name")),
+                (
+                    "minimum_staff",
+                    models.PositiveIntegerField(
+                        default=1,
+                        help_text="Wie viele Personen müssen im Dienst gleichzeitig anwesend sein",
+                        verbose_name="Mindestbesetzung",
+                    ),
+                ),
+                (
+                    "specialist_ratio",
+                    models.PositiveIntegerField(
+                        default=50,
+                        help_text="Anteil der Dienststunden, der von Fachkräften geleistet werden muss",
+                        verbose_name="Fachkraftquote in Prozent",
+                    ),
+                ),
+                (
+                    "group",
+                    models.ForeignKey(
+                        blank=True,
+                        db_constraint=False,
+                        help_text="Verknüpfung zur Wohn-/Tagesgruppe, sofern vorhanden",
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="departments",
+                        to="django_grp_backend.group",
+                        verbose_name="Gruppe",
+                    ),
+                ),
+                (
+                    "facility",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="departments",
+                        to="django_grp_org.facility",
+                        verbose_name="Einrichtung",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Bereich',
-                'verbose_name_plural': 'Bereiche',
-                'ordering': ['facility', 'name'],
+                "verbose_name": "Bereich",
+                "verbose_name_plural": "Bereiche",
+                "ordering": ["facility", "name"],
             },
         ),
         migrations.CreateModel(
-            name='Position',
+            name="Position",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('title', models.CharField(max_length=120, verbose_name='Stellenbezeichnung')),
-                ('target_fte', models.DecimalField(decimal_places=2, default=Decimal('1.00'), max_digits=4, verbose_name='Soll-Stellenanteil')),
-                ('requires_specialist', models.BooleanField(default=True, verbose_name='Fachkraftstelle')),
-                ('notes', models.CharField(blank=True, default='', max_length=200)),
-                ('department', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='positions', to='django_grp_org.department', verbose_name='Bereich')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "title",
+                    models.CharField(max_length=120, verbose_name="Stellenbezeichnung"),
+                ),
+                (
+                    "target_fte",
+                    models.DecimalField(
+                        decimal_places=2,
+                        default=Decimal("1.00"),
+                        max_digits=4,
+                        verbose_name="Soll-Stellenanteil",
+                    ),
+                ),
+                (
+                    "requires_specialist",
+                    models.BooleanField(default=True, verbose_name="Fachkraftstelle"),
+                ),
+                ("notes", models.CharField(blank=True, default="", max_length=200)),
+                (
+                    "department",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="positions",
+                        to="django_grp_org.department",
+                        verbose_name="Bereich",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Stelle',
-                'verbose_name_plural': 'Stellen',
-                'ordering': ['department', 'title'],
+                "verbose_name": "Stelle",
+                "verbose_name_plural": "Stellen",
+                "ordering": ["department", "title"],
             },
         ),
         migrations.CreateModel(
-            name='PositionAssignment',
+            name="PositionAssignment",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('fte', models.DecimalField(decimal_places=2, default=Decimal('1.00'), max_digits=4, verbose_name='Stellenanteil')),
-                ('valid_from', models.DateField(verbose_name='Ab')),
-                ('valid_to', models.DateField(blank=True, null=True, verbose_name='Bis')),
-                ('employee', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='assignments', to='django_grp_org.employee', verbose_name='Mitarbeitende')),
-                ('position', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='assignments', to='django_grp_org.position', verbose_name='Stelle')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "fte",
+                    models.DecimalField(
+                        decimal_places=2,
+                        default=Decimal("1.00"),
+                        max_digits=4,
+                        verbose_name="Stellenanteil",
+                    ),
+                ),
+                ("valid_from", models.DateField(verbose_name="Ab")),
+                (
+                    "valid_to",
+                    models.DateField(blank=True, null=True, verbose_name="Bis"),
+                ),
+                (
+                    "employee",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="assignments",
+                        to="django_grp_org.employee",
+                        verbose_name="Mitarbeitende",
+                    ),
+                ),
+                (
+                    "position",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="assignments",
+                        to="django_grp_org.position",
+                        verbose_name="Stelle",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Stellenbesetzung',
-                'verbose_name_plural': 'Stellenbesetzungen',
-                'ordering': ['-valid_from'],
+                "verbose_name": "Stellenbesetzung",
+                "verbose_name_plural": "Stellenbesetzungen",
+                "ordering": ["-valid_from"],
             },
         ),
         migrations.CreateModel(
-            name='EmployeeQualification',
+            name="EmployeeQualification",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('acquired_on', models.DateField(blank=True, null=True, verbose_name='Erworben am')),
-                ('expires_on', models.DateField(blank=True, help_text='Für Nachweise, die aufgefrischt werden müssen', null=True, verbose_name='Gültig bis')),
-                ('employee', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='employee_qualifications', to='django_grp_org.employee')),
-                ('qualification', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='employee_qualifications', to='django_grp_org.qualification')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "acquired_on",
+                    models.DateField(blank=True, null=True, verbose_name="Erworben am"),
+                ),
+                (
+                    "expires_on",
+                    models.DateField(
+                        blank=True,
+                        help_text="Für Nachweise, die aufgefrischt werden müssen",
+                        null=True,
+                        verbose_name="Gültig bis",
+                    ),
+                ),
+                (
+                    "employee",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="employee_qualifications",
+                        to="django_grp_org.employee",
+                    ),
+                ),
+                (
+                    "qualification",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="employee_qualifications",
+                        to="django_grp_org.qualification",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Qualifikationsnachweis',
-                'verbose_name_plural': 'Qualifikationsnachweise',
-                'ordering': ['qualification__name'],
-                'unique_together': {('employee', 'qualification')},
+                "verbose_name": "Qualifikationsnachweis",
+                "verbose_name_plural": "Qualifikationsnachweise",
+                "ordering": ["qualification__name"],
+                "unique_together": {("employee", "qualification")},
             },
         ),
         migrations.AddField(
-            model_name='employee',
-            name='qualifications',
-            field=models.ManyToManyField(blank=True, related_name='employees', through='django_grp_org.EmployeeQualification', to='django_grp_org.qualification'),
+            model_name="employee",
+            name="qualifications",
+            field=models.ManyToManyField(
+                blank=True,
+                related_name="employees",
+                through="django_grp_org.EmployeeQualification",
+                to="django_grp_org.qualification",
+            ),
         ),
         migrations.CreateModel(
-            name='Role',
+            name="Role",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('role', models.CharField(choices=[('management', 'Leitung'), ('specialist', 'Fachkraft'), ('assistant', 'Ergänzungskraft'), ('administration', 'Verwaltung'), ('youth_office', 'Jugendamt (Lesezugriff)')], max_length=20, verbose_name='Rolle')),
-                ('valid_from', models.DateField(verbose_name='Gültig ab')),
-                ('valid_to', models.DateField(blank=True, null=True, verbose_name='Gültig bis')),
-                ('department', models.ForeignKey(blank=True, db_constraint=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='roles', to='django_grp_org.department', verbose_name='Bereich')),
-                ('employee', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='roles', to='django_grp_org.employee', verbose_name='Mitarbeitende')),
-                ('facility', models.ForeignKey(blank=True, db_constraint=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='roles', to='django_grp_org.facility', verbose_name='Einrichtung')),
-                ('provider', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='roles', to='django_grp_org.provider', verbose_name='Träger')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "role",
+                    models.CharField(
+                        choices=[
+                            ("management", "Leitung"),
+                            ("specialist", "Fachkraft"),
+                            ("assistant", "Ergänzungskraft"),
+                            ("administration", "Verwaltung"),
+                            ("youth_office", "Jugendamt (Lesezugriff)"),
+                        ],
+                        max_length=20,
+                        verbose_name="Rolle",
+                    ),
+                ),
+                ("valid_from", models.DateField(verbose_name="Gültig ab")),
+                (
+                    "valid_to",
+                    models.DateField(blank=True, null=True, verbose_name="Gültig bis"),
+                ),
+                (
+                    "department",
+                    models.ForeignKey(
+                        blank=True,
+                        db_constraint=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="roles",
+                        to="django_grp_org.department",
+                        verbose_name="Bereich",
+                    ),
+                ),
+                (
+                    "employee",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="roles",
+                        to="django_grp_org.employee",
+                        verbose_name="Mitarbeitende",
+                    ),
+                ),
+                (
+                    "facility",
+                    models.ForeignKey(
+                        blank=True,
+                        db_constraint=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="roles",
+                        to="django_grp_org.facility",
+                        verbose_name="Einrichtung",
+                    ),
+                ),
+                (
+                    "provider",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="roles",
+                        to="django_grp_org.provider",
+                        verbose_name="Träger",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Rolle',
-                'verbose_name_plural': 'Rollen',
-                'ordering': ['employee', 'role'],
+                "verbose_name": "Rolle",
+                "verbose_name_plural": "Rollen",
+                "ordering": ["employee", "role"],
             },
         ),
         migrations.CreateModel(
-            name='Site',
+            name="Site",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=150, verbose_name='Name')),
-                ('address', models.CharField(blank=True, default='', max_length=150)),
-                ('postalcode', models.CharField(blank=True, default='', max_length=10)),
-                ('city', models.CharField(blank=True, default='', max_length=100)),
-                ('provider', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='sites', to='django_grp_org.provider', verbose_name='Träger')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(max_length=150, verbose_name="Name")),
+                ("address", models.CharField(blank=True, default="", max_length=150)),
+                ("postalcode", models.CharField(blank=True, default="", max_length=10)),
+                ("city", models.CharField(blank=True, default="", max_length=100)),
+                (
+                    "provider",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="sites",
+                        to="django_grp_org.provider",
+                        verbose_name="Träger",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Standort',
-                'verbose_name_plural': 'Standorte',
-                'ordering': ['provider', 'name'],
+                "verbose_name": "Standort",
+                "verbose_name_plural": "Standorte",
+                "ordering": ["provider", "name"],
             },
         ),
         migrations.AddField(
-            model_name='facility',
-            name='site',
-            field=models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='facilities', to='django_grp_org.site', verbose_name='Standort'),
+            model_name="facility",
+            name="site",
+            field=models.ForeignKey(
+                db_constraint=False,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="facilities",
+                to="django_grp_org.site",
+                verbose_name="Standort",
+            ),
         ),
         migrations.CreateModel(
-            name='WorkTimeModel',
+            name="WorkTimeModel",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=120, verbose_name='Bezeichnung')),
-                ('weekly_hours', models.DecimalField(decimal_places=2, max_digits=5, verbose_name='Wochenstunden')),
-                ('days_per_week', models.DecimalField(decimal_places=1, default=Decimal('5.0'), max_digits=3, verbose_name='Tage pro Woche')),
-                ('vacation_days', models.PositiveIntegerField(default=30, verbose_name='Urlaubstage pro Jahr')),
-                ('notes', models.CharField(blank=True, default='', max_length=200)),
-                ('provider', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='work_time_models', to='django_grp_org.provider', verbose_name='Träger')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(max_length=120, verbose_name="Bezeichnung")),
+                (
+                    "weekly_hours",
+                    models.DecimalField(
+                        decimal_places=2, max_digits=5, verbose_name="Wochenstunden"
+                    ),
+                ),
+                (
+                    "days_per_week",
+                    models.DecimalField(
+                        decimal_places=1,
+                        default=Decimal("5.0"),
+                        max_digits=3,
+                        verbose_name="Tage pro Woche",
+                    ),
+                ),
+                (
+                    "vacation_days",
+                    models.PositiveIntegerField(
+                        default=30, verbose_name="Urlaubstage pro Jahr"
+                    ),
+                ),
+                ("notes", models.CharField(blank=True, default="", max_length=200)),
+                (
+                    "provider",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="work_time_models",
+                        to="django_grp_org.provider",
+                        verbose_name="Träger",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Arbeitszeitmodell',
-                'verbose_name_plural': 'Arbeitszeitmodelle',
-                'ordering': ['provider', 'name'],
+                "verbose_name": "Arbeitszeitmodell",
+                "verbose_name_plural": "Arbeitszeitmodelle",
+                "ordering": ["provider", "name"],
             },
         ),
         migrations.AddField(
-            model_name='employee',
-            name='work_time_model',
-            field=models.ForeignKey(blank=True, db_constraint=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='employees', to='django_grp_org.worktimemodel', verbose_name='Arbeitszeitmodell'),
+            model_name="employee",
+            name="work_time_model",
+            field=models.ForeignKey(
+                blank=True,
+                db_constraint=False,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="employees",
+                to="django_grp_org.worktimemodel",
+                verbose_name="Arbeitszeitmodell",
+            ),
         ),
     ]
