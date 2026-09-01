@@ -163,6 +163,108 @@ class Resident(models.Model):
         return self.get_full_name()
 
 
+class ResidentContact(models.Model):
+    """
+    Kontaktdaten der Erziehungsberechtigten und weiterer Bezugspersonen.
+
+    Steht bewusst am Bewohner und nicht nur an der Fallakte: wenn nachts
+    etwas passiert, muss die Nummer der Mutter auf der Bewohnerseite stehen
+    und nicht drei Klicks tiefer im Hilfeplanverfahren. Die Beteiligten der
+    Fallakte (django_grp_care.CaseParticipant) bleiben davon unberührt -
+    dort geht es um das Verfahren, hier um die Erreichbarkeit.
+
+    Sorgerecht und Notfallkontakt sind eigene Felder, weil beides im Alltag
+    unterschiedliche Fragen beantwortet: wer darf entscheiden, und wen ruft
+    man zuerst an. Das ist nicht immer dieselbe Person.
+    """
+
+    KIND_CHOICES = [
+        ("guardian", "Erziehungsberechtigt"),
+        ("mother", "Mutter"),
+        ("father", "Vater"),
+        ("custodian", "Vormund"),
+        ("relative", "Angehörige:r"),
+        ("youth_office", "Jugendamt"),
+        ("doctor", "Ärztin / Arzt"),
+        ("school", "Schule / Kita"),
+        ("therapy", "Therapie"),
+        ("other", "Sonstige"),
+    ]
+
+    resident = models.ForeignKey(
+        Resident,
+        on_delete=models.CASCADE,
+        related_name="contacts",
+        verbose_name="Bewohner:in",
+        # Siehe Protocol.template: die Datenbank liegt auf einem Windows-
+        # Bind-Mount, auf dem InnoDB keine Fremdschlüssel nachtragen kann.
+        db_constraint=False,
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=KIND_CHOICES,
+        default="guardian",
+        verbose_name="Rolle",
+    )
+    name = models.CharField(max_length=120, verbose_name="Name")
+    relationship = models.CharField(
+        max_length=80,
+        blank=True,
+        default="",
+        verbose_name="Verhältnis",
+        help_text="Freitext, falls die Rolle es nicht genau trifft",
+    )
+    organisation = models.CharField(
+        max_length=120, blank=True, default="", verbose_name="Organisation"
+    )
+    phone = models.CharField(
+        max_length=40, blank=True, default="", verbose_name="Telefon"
+    )
+    mobile = models.CharField(
+        max_length=40, blank=True, default="", verbose_name="Mobil"
+    )
+    email = models.EmailField(blank=True, default="", verbose_name="E-Mail")
+    address = models.CharField(
+        max_length=200, blank=True, default="", verbose_name="Anschrift"
+    )
+    has_custody = models.BooleanField(
+        default=False,
+        verbose_name="Sorgeberechtigt",
+        help_text="Darf über Schule, Medizin und Aufenthalt mitentscheiden",
+    )
+    is_emergency = models.BooleanField(
+        default=False,
+        verbose_name="Notfallkontakt",
+        help_text="Wird im Notfall zuerst angerufen",
+    )
+    note = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Hinweis",
+        help_text="Erreichbarkeit, Absprachen, Umgangsregelungen",
+    )
+    position = models.PositiveIntegerField(default=0, verbose_name="Reihenfolge")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # Notfallkontakte zuerst, danach die eigene Reihenfolge - so steht
+        # oben, was im Ernstfall gebraucht wird.
+        ordering = ["-is_emergency", "position", "id"]
+        verbose_name = "Kontakt"
+        verbose_name_plural = "Kontakte"
+        indexes = [models.Index(fields=["resident", "position"])]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.get_kind_display()})"
+
+    @property
+    def reachability(self) -> str:
+        """Telefon, Mobil und E-Mail in einer Zeile - für Listen und PDF."""
+        parts = [part for part in (self.phone, self.mobile, self.email) if part]
+        return " · ".join(parts)
+
+
 class Protocol(models.Model):
     STATUS_CHOICES = [
         ("draft", "Entwurf"),

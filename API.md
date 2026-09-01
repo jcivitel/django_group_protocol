@@ -150,7 +150,7 @@ class ApiClient {
 | `/api/v1/group/{id}/` | GET | ❌ | Get group details (demo data if not authenticated) |
 | `/api/v1/group/{id}/` | PUT | ✅ | Update group |
 | `/api/v1/group/{id}/` | DELETE | ✅ | Delete group (staff only) |
-| `/api/v1/group/{id}/pdf_template/` | POST | ✅ | Upload PDF template |
+| `/api/v1/group/{id}/pdf_template/` | POST | ✅ | Upload PDF template (max. 5 MB) |
 
 ### Resident Endpoints
 
@@ -162,6 +162,31 @@ class ApiClient {
 | `/api/v1/resident/{id}/` | PUT | ✅ | Update resident |
 | `/api/v1/resident/{id}/` | DELETE | ✅ | Delete resident |
 | `/api/v1/resident/{id}/picture/` | GET | ✅ | Get resident picture |
+
+### Kontakte der Erziehungsberechtigten
+
+Kontaktdaten hängen unter der Bewohnerakte. Wer die Akte sehen darf (Personal
+oder Mitglied der Wohngruppe), darf die Kontakte auch pflegen.
+
+| Endpoint | Method | Auth | Purpose |
+|----------|--------|------|---------|
+| `/api/v1/resident/{id}/contact/` | GET | ✅ | Kontakte einer Bewohnerakte |
+| `/api/v1/resident/{id}/contact/` | POST | ✅ | Kontakt anlegen |
+| `/api/v1/resident/{id}/contact/{cid}/` | PUT/PATCH | ✅ | Kontakt ändern |
+| `/api/v1/resident/{id}/contact/{cid}/` | DELETE | ✅ | Kontakt entfernen |
+
+Felder: `kind` (`guardian`, `mother`, `father`, `custodian`, `relative`,
+`youth_office`, `doctor`, `school`, `therapy`, `other`), `name`,
+`relationship`, `organisation`, `phone`, `mobile`, `email`, `address`,
+`has_custody`, `is_emergency`, `note`, `position`. Dazu kommen read-only
+`kind_display` und `reachability` (Telefon, Mobil und E-Mail in einer Zeile).
+
+`resident` ist read-only und kommt aus der URL — ein Kontakt lässt sich nicht
+nachträglich an eine andere Akte hängen. Sortiert wird nach `is_emergency`
+absteigend, dann `position`: im Notfall steht oben, wer zuerst angerufen wird.
+
+`has_custody` und `is_emergency` sind absichtlich getrennt. Wer entscheiden
+darf, ist nicht zwingend wer erreichbar ist.
 
 ### Protocol Endpoints
 
