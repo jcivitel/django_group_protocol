@@ -178,6 +178,57 @@ class ApiClient {
 | `/api/v1/presence/` | POST | ✅ | Update presence |
 
 
+### Protocol Template Endpoints (Phase 6)
+
+Protokolltypen mit vorbereiteter Tagesordnung. Vorlagen ohne `group` gelten
+träger­weit, Vorlagen mit `group` nur für diese Gruppe. Anlegen und Ändern ist
+Mitarbeitenden vorbehalten.
+
+| Endpoint | Method | Auth | Purpose |
+|----------|--------|------|---------|
+| `/api/v1/template/` | GET | ✅ | Sichtbare Vorlagen auflisten |
+| `/api/v1/template/` | POST | ✅ | Vorlage anlegen (staff) |
+| `/api/v1/template/{id}/` | GET | ✅ | Vorlage lesen |
+| `/api/v1/template/{id}/` | PUT | ✅ | Vorlage ändern (staff) — `items` ersetzt immer den ganzen Satz |
+| `/api/v1/template/{id}/` | DELETE | ✅ | Vorlage löschen (staff) |
+
+Wird beim Anlegen eines Protokolls `template` mitgegeben, erzeugt ein Signal
+die Tagesordnung aus den Bausteinen der Vorlage.
+
+### Protocol Attendance & Observation Endpoints (Phase 6)
+
+| Endpoint | Method | Auth | Purpose |
+|----------|--------|------|---------|
+| `/api/v1/protocol/{id}/attendance/` | GET/POST | ✅ | Teilnahme der **Bewohner** |
+| `/api/v1/protocol/{id}/attendance/{aid}/` | PUT/DELETE | ✅ | Teilnahme ändern/entfernen |
+| `/api/v1/protocol/{id}/observation/` | GET/POST | ✅ | Verlaufseinträge |
+| `/api/v1/protocol/{id}/observation/{oid}/` | PUT/DELETE | ✅ | Verlaufseintrag ändern/löschen |
+
+`attendance` betrifft die Kinder und Jugendlichen — nicht zu verwechseln mit
+`presence`, das die anwesenden Mitarbeitenden führt. Teilnahmen werden beim
+Anlegen eines Protokolls für alle aktiven Bewohner der Gruppe vorbereitet.
+
+Ein `observation` ohne `resident` beschreibt die Gruppe insgesamt, mit
+`resident` den Einzelverlauf. `category` ist `course`, `observation` oder
+`agreement`.
+
+### Neue Felder an bestehenden Ressourcen (Phase 6)
+
+- `Protocol.template` (int, optional) — verwendete Vorlage
+- `Protocol.topic` (string) — Thema des Angebots
+- `ProtocolItem.kind` — `text` oder `table`
+- `ProtocolItem.data` — bei `kind="table"`: `{"columns": [...], "rows": [[...]]}`
+
+Alte Einträge behalten `kind="text"` und ihre Markdown-Tabelle in `value`.
+
+> **Hinweis zu Fremdschlüsseln:** Die Beziehungen der Phase-6-Modelle sind mit
+> `db_constraint=False` angelegt. Grund ist das Entwicklungs-Setup: In
+> `utils/docker-compose.yml` liegt das MariaDB-Datenverzeichnis auf einem
+> Windows-Bind-Mount (`./mysql:/var/lib/mysql`). InnoDB kann dort keine Dateien
+> umbenennen, wodurch jedes `ALTER TABLE ... ADD FOREIGN KEY` mit
+> „Tablespace is missing" abbricht. Django prüft die Beziehungen weiterhin.
+> Läuft die Datenbank auf einem Docker-Volume, kann `db_constraint` entfallen.
+
 ### Protocol Item & Utility Endpoints
 
 | Endpoint | Method | Auth | Purpose |
