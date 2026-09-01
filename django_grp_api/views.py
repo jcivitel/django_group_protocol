@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
+from django_grp_backend.functions import upload_too_large
 from django_grp_backend.models import (
     Protocol,
     Group,
@@ -840,6 +841,12 @@ class GroupPDFTemplateView(APIView):
                 return Response(
                     {"error": "Only PDF files are allowed"},
                     status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            oversized = upload_too_large(pdf_file)
+            if oversized:
+                return Response(
+                    {"error": oversized}, status=status.HTTP_400_BAD_REQUEST
                 )
 
             # Update group with new template
