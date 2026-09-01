@@ -10,10 +10,11 @@ from decimal import Decimal
 
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .audit import AuditEvent
 from .tenancy import limit_to_tenant, tenant_providers
 from .models import (
     Contract,
@@ -493,3 +494,93 @@ class StaffingPlanView(APIView):
             )
 
         return Response(data)
+
+
+# ---------------------------------------------------------------- Phase 1/9
+
+
+class AuditEventSerializer(serializers.ModelSerializer):
+    action_display = serializers.CharField(source="get_action_display", read_only=True)
+
+    class Meta:
+        model = AuditEvent
+        fields = [
+            "id",
+            "model",
+            "object_id",
+            "label",
+            "action",
+            "action_display",
+            "changes",
+            "username",
+            "created_at",
+        ]
+
+
+class AuditEventViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Änderungsprotokoll sensibler Stammdaten.
+
+    Nur lesbar und nur für Personal: ein Protokoll, das sich ändern lässt,
+    ist keins.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = AuditEventSerializer
+
+    def get_queryset(self):
+        if not self.request.user.is_staff:
+            return AuditEvent.objects.none()
+
+        queryset = AuditEvent.objects.all()
+        model = self.request.query_params.get("art")
+        if model:
+            queryset = queryset.filter(model=model)
+        return queryset[:500]
+
+
+class HealthView(APIView):
+    """
+    Betriebszustand (Roadmap Phase 9).
+
+    Ohne Anmeldung erreichbar, damit Monitoring-Systeme sie abfragen können -
+    und bewusst ohne Fachdaten: nur, ob Datenbank und Anwendung antworten.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        from django.db import connection
+
+        database = "ok"
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+        except Exception as error:  # noqa: BLE001
+            database = f"fehler: {type(error).__name__}"
+
+        pending = []
+        try:
+            from django.db.migrations.executor import MigrationExecutor
+
+            executor = MigrationExecutor(connection)
+            pending = [
+                f"{migration.app_label}.{migration.name}"
+                for migration, _ in executor.migration_plan(
+                    executor.loader.graph.leaf_nodes()
+                )
+            ]
+        except Exception:  # noqa: BLE001
+            pending = ["unbekannt"]
+
+        healthy = database == "ok" and not pending
+        return Response(
+            {
+                "status": "ok" if healthy else "degraded",
+                "database": database,
+                "pending_migrations": pending,
+            },
+            status=200 if healthy else 503,
+        )

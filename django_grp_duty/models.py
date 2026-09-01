@@ -392,3 +392,123 @@ def release_shifts_when_approved(sender, instance, **kwargs):
     from .services import release_shifts_for_absence
 
     release_shifts_for_absence(instance)
+
+
+# ============================================================ Phase 7
+
+
+class ShiftPreference(models.Model):
+    """
+    Wunsch oder Sperre für einen Tag.
+
+    Die Planung sieht beim Besetzen, wer sich einen Tag wünscht und wer ihn
+    nicht kann. Verbindlich ist das nicht - es ist eine Angabe, keine
+    Zusage, und genau so steht es auch in der Oberfläche.
+    """
+
+    KIND_CHOICES = [
+        ("wish", "Wunsch"),
+        ("block", "Möchte nicht"),
+        ("unavailable", "Nicht verfügbar"),
+    ]
+
+    employee = fk(Employee, related_name="preferences", verbose_name="Mitarbeitende")
+    date = models.DateField(verbose_name="Datum")
+    shift_type = fk(
+        ShiftType,
+        related_name="preferences",
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE,
+        verbose_name="Dienstart",
+        help_text="Leer lassen, wenn der ganze Tag gemeint ist",
+    )
+    kind = models.CharField(
+        max_length=20, choices=KIND_CHOICES, default="wish", verbose_name="Art"
+    )
+    note = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("employee", "date", "shift_type")
+        ordering = ["date"]
+        verbose_name = "Dienstwunsch"
+        verbose_name_plural = "Dienstwünsche"
+
+    def __str__(self) -> str:
+        what = self.shift_type.short_code if self.shift_type_id else "ganzer Tag"
+        return f"{self.employee} {self.date} {what}: {self.get_kind_display()}"
+
+
+class ShiftSwap(models.Model):
+    """
+    Diensttausch.
+
+    Ablauf: jemand bietet einen Dienst an, eine zweite Person nimmt ihn an,
+    die Leitung bestätigt. Erst mit der Bestätigung wechselt der Dienst die
+    Person - vorher ist nichts entschieden, und der Plan bleibt gültig.
+    """
+
+    STATUS_CHOICES = [
+        ("offered", "Angeboten"),
+        ("accepted", "Angenommen"),
+        ("confirmed", "Bestätigt"),
+        ("declined", "Abgelehnt"),
+        ("withdrawn", "Zurückgezogen"),
+    ]
+
+    shift = fk(Shift, related_name="swaps", verbose_name="Dienst")
+    offered_by = fk(Employee, related_name="offered_swaps", verbose_name="Bietet an")
+    accepted_by = fk(
+        Employee,
+        related_name="accepted_swaps",
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        verbose_name="Übernimmt",
+    )
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default="offered", verbose_name="Status"
+    )
+    reason = models.CharField(
+        max_length=200, blank=True, default="", verbose_name="Grund"
+    )
+    decided_by = fk(
+        Employee,
+        related_name="decided_swaps",
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        verbose_name="Bestätigt von",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Diensttausch"
+        verbose_name_plural = "Diensttausche"
+
+    def __str__(self) -> str:
+        return f"{self.shift} – {self.get_status_display()}"
+
+    @property
+    def is_open(self) -> bool:
+        return self.status in ("offered", "accepted")
+
+
+@receiver(post_save, sender=ShiftSwap)
+def apply_confirmed_swap(sender, instance, **kwargs):
+    """Mit der Bestätigung wechselt der Dienst die Person."""
+    if instance.status != "confirmed" or not instance.accepted_by_id:
+        return
+
+    shift = instance.shift
+    if shift.employee_id == instance.accepted_by_id:
+        return
+
+    shift.employee_id = instance.accepted_by_id
+    shift.is_substitute = True
+    note = f"Getauscht von {instance.offered_by.get_full_name()}"
+    shift.note = note if not shift.note else f"{shift.note} · {note}"
+    shift.save(update_fields=["employee", "is_substitute", "note"])

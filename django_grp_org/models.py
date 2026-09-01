@@ -450,3 +450,8 @@ class PositionAssignment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.employee} auf {self.position} ({self.fte})"
+
+
+# Änderungsprotokoll und die zugehörigen Signale werden hier eingehängt,
+# damit Django beides beim Laden der App registriert.
+from .audit import AuditEvent  # noqa: E402,F401  (am Ende, wegen Zyklen)
