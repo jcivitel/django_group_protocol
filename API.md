@@ -229,6 +229,88 @@ Alte Einträge behalten `kind="text"` und ihre Markdown-Tabelle in `value`.
 > „Tablespace is missing" abbricht. Django prüft die Beziehungen weiterhin.
 > Läuft die Datenbank auf einem Docker-Volume, kann `db_constraint` entfallen.
 
+### Organisation und Personal (Phasen 0 und 1)
+
+Neue App `django_grp_org`. Lesen darf jede angemeldete Person, schreiben nur
+Personal. Persönliche Angaben (Geburtsdatum, Personalnummer, Telefon) blendet
+der Serializer für Nicht-Personal aus, sofern es nicht der eigene Datensatz
+ist.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/provider/` | CRUD | Träger (Mandant) |
+| `/api/v1/site/` | CRUD | Standorte |
+| `/api/v1/facility/` | CRUD | Einrichtungen |
+| `/api/v1/department/` | CRUD | Bereiche, optional mit Gruppe verknüpft |
+| `/api/v1/employee/` | CRUD | Mitarbeitende (`?aktiv=1` filtert Ausgeschiedene) |
+| `/api/v1/contract/` | CRUD | Verträge (nur eigene, außer Personal) |
+| `/api/v1/qualification/` | CRUD | Qualifikationen |
+| `/api/v1/employee-qualification/` | CRUD | Nachweise mit Gültigkeit |
+| `/api/v1/worktime-model/` | CRUD | Arbeitszeitmodelle |
+| `/api/v1/role/` | CRUD | Rollen je Ebene |
+| `/api/v1/position/` | CRUD | Stellen (`?bereich=` filtert) |
+| `/api/v1/position-assignment/` | CRUD | Besetzungen |
+| `/api/v1/staffing-plan/` | GET | Stellplan je Bereich mit Soll, Ist und Zustand |
+
+### Dienst, Abwesenheit und Zeit (Phasen 2 bis 4)
+
+Neue App `django_grp_duty`. Personal sieht alles, alle anderen nur die eigenen
+Daten.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/shift-type/` | CRUD | Dienstarten mit Zeiten und Farbe |
+| `/api/v1/duty-plan/` | CRUD | Monatspläne je Bereich (`?bereich=&jahr=&monat=`) |
+| `/api/v1/duty-plan/{id}/shift/` | CRUD | Dienste eines Plans |
+| `/api/v1/duty-plan/{id}/rules/` | GET | Regelprüfung mit Verstößen im Klartext |
+| `/api/v1/duty-plan/{id}/generate/` | POST | Dienste eines Monats anlegen |
+| `/api/v1/substitutes/{shift_id}/` | GET | Vertretungsvorschläge mit Begründung |
+| `/api/v1/absence-type/` | CRUD | Abwesenheitsarten |
+| `/api/v1/absence/` | CRUD | Anträge (`?mitarbeiter=&status=`) |
+| `/api/v1/vacation/{employee_id}/` | GET | Urlaubskonto (`?jahr=`) |
+| `/api/v1/time-entry/` | CRUD | Zeitbuchungen (`?mitarbeiter=&jahr=&monat=`) |
+| `/api/v1/time-approval/` | POST | Buchungen freigeben (staff) |
+| `/api/v1/time-account/` | GET | Zeitkonten |
+| `/api/v1/time-close/` | POST | Monatsabschluss (staff) |
+| `/api/v1/my/duty/` | GET | SelfService: eigene Dienste, Abwesenheiten, Konten |
+
+Geprüft werden Ruhezeit (§ 5 ArbZG, 11 h), Höchstarbeitszeit (§ 3 ArbZG,
+10 h), Doppelbelegung, Konflikte mit genehmigten Abwesenheiten, Tage am Stück,
+Mindestbesetzung und Fachkraftquote je Bereich. Über den Status entscheidet
+ausschließlich Personal; wer selbst beantragt, kann nur zurückziehen.
+Genehmigte Abwesenheiten geben betroffene Dienste automatisch frei.
+
+### Hilfeplanung und Fallführung (Phase 5)
+
+Neue App `django_grp_care`. Zugriff nur für Personal oder Mitglieder der
+Gruppe, in der die betreute Person lebt.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/case-file/` | CRUD | Fallakten (`?bewohner=`) |
+| `/api/v1/help-plan/` | CRUD | Hilfepläne (`?fallakte=`) |
+| `/api/v1/help-plan/{id}/continue/` | POST | Fortschreiben als neue Fassung |
+| `/api/v1/help-goal/` | CRUD | Ziele |
+| `/api/v1/help-measure/` | CRUD | Maßnahmen |
+| `/api/v1/case-participant/` | CRUD | Beteiligte |
+| `/api/v1/case-meeting/` | CRUD | Hilfeplangespräche und Fallkonferenzen |
+| `/api/v1/case-timeline/{id}/` | GET | Zeitleiste inkl. Verlauf aus Protokollen |
+| `/api/v1/help-plan-reviews/` | GET | Anstehende Fortschreibungen |
+
+Fortschreiben legt eine neue Fassung an, übernimmt die offenen Ziele mitsamt
+ihren unerledigten Maßnahmen und setzt die alte Fassung auf
+„fortgeschrieben". Erreichte Ziele bleiben in der alten Fassung.
+
+### Einrichtung
+
+```bash
+python manage.py seed_organisation --provider "Name des Trägers"
+```
+
+Legt aus den vorhandenen Gruppen und Benutzerkonten Träger, Standort,
+Einrichtungen, Bereiche, Mitarbeitende, Dienstarten, Abwesenheitsarten und
+einen Stellplan an. Wiederholbar, überschreibt nichts.
+
 ### Protocol Item & Utility Endpoints
 
 | Endpoint | Method | Auth | Purpose |
