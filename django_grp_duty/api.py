@@ -25,6 +25,8 @@ from .models import (
     AbsenceType,
     DutyPlan,
     Shift,
+    ShiftPreference,
+    ShiftSwap,
     ShiftType,
     TimeAccount,
     TimeEntry,
@@ -692,5 +694,209 @@ class MyDutyView(APIView):
                     accounts, many=True, context={"request": request}
                 ).data,
                 "vacation": vacation_balance(employee, today.year),
+            }
+        )
+
+
+# ---------------------------------------------------------------- Phase 7
+
+
+class ShiftPreferenceSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+    shift_type_code = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ShiftPreference
+        fields = [
+            "id",
+            "employee",
+            "employee_name",
+            "date",
+            "shift_type",
+            "shift_type_code",
+            "kind",
+            "kind_display",
+            "note",
+        ]
+
+    def get_employee_name(self, obj):
+        return obj.employee.get_full_name()
+
+    def get_shift_type_code(self, obj):
+        return obj.shift_type.short_code if obj.shift_type_id else None
+
+
+class ShiftSwapSerializer(serializers.ModelSerializer):
+    offered_by_name = serializers.SerializerMethodField()
+    accepted_by_name = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    shift_date = serializers.DateField(source="shift.date", read_only=True)
+    shift_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ShiftSwap
+        fields = [
+            "id",
+            "shift",
+            "shift_date",
+            "shift_label",
+            "offered_by",
+            "offered_by_name",
+            "accepted_by",
+            "accepted_by_name",
+            "status",
+            "status_display",
+            "reason",
+            "decided_by",
+        ]
+        read_only_fields = ["decided_by"]
+
+    def get_offered_by_name(self, obj):
+        return obj.offered_by.get_full_name()
+
+    def get_accepted_by_name(self, obj):
+        return obj.accepted_by.get_full_name() if obj.accepted_by_id else None
+
+    def get_shift_label(self, obj):
+        return f"{obj.shift.shift_type.short_code} {obj.shift.shift_type.name}"
+
+
+class ShiftPreferenceViewSet(viewsets.ModelViewSet):
+    """Dienstwünsche. Jede Person pflegt die eigenen, Personal sieht alle."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ShiftPreferenceSerializer
+
+    def get_queryset(self):
+        queryset = limit_to_tenant(
+            ShiftPreference.objects.select_related("employee", "shift_type"),
+            self.request.user,
+            "employee__provider_id",
+        )
+        if not self.request.user.is_staff:
+            queryset = queryset.filter(employee__user=self.request.user)
+
+        month = self.request.query_params.get("monat")
+        year = self.request.query_params.get("jahr")
+        if year:
+            queryset = queryset.filter(date__year=year)
+        if month:
+            queryset = queryset.filter(date__month=month)
+        return queryset
+
+    def _own_or_staff(self, employee_id):
+        if self.request.user.is_staff:
+            return
+        own = current_employee(self.request.user)
+        if own is None or own.id != employee_id:
+            raise PermissionDenied("Du kannst nur eigene Wünsche eintragen.")
+
+    def perform_create(self, serializer):
+        self._own_or_staff(serializer.validated_data["employee"].id)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        self._own_or_staff(serializer.instance.employee_id)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._own_or_staff(instance.employee_id)
+        instance.delete()
+
+
+class ShiftSwapViewSet(viewsets.ModelViewSet):
+    """
+    Diensttausch.
+
+    Anbieten und Annehmen darf jede betroffene Person, bestätigen nur die
+    Leitung - erst dann wechselt der Dienst.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ShiftSwapSerializer
+
+    def get_queryset(self):
+        queryset = limit_to_tenant(
+            ShiftSwap.objects.select_related(
+                "shift__shift_type", "offered_by", "accepted_by"
+            ),
+            self.request.user,
+            "offered_by__provider_id",
+        )
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        return queryset
+
+    def perform_create(self, serializer):
+        own = current_employee(self.request.user)
+        offered_by = serializer.validated_data["offered_by"]
+        if not self.request.user.is_staff and (own is None or own.id != offered_by.id):
+            raise PermissionDenied("Du kannst nur eigene Dienste anbieten.")
+
+        shift = serializer.validated_data["shift"]
+        if shift.employee_id != offered_by.id:
+            raise ValidationError("Dieser Dienst gehört nicht zur angebotenen Person.")
+        serializer.save(status="offered")
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        own = current_employee(self.request.user)
+        new_status = serializer.validated_data.get("status", instance.status)
+
+        if new_status == "confirmed" and not self.request.user.is_staff:
+            raise PermissionDenied("Einen Tausch bestätigt die Leitung.")
+
+        if new_status == "accepted":
+            # Wer annimmt, trägt sich selbst ein - nicht jemand anderen.
+            accepted_by = serializer.validated_data.get("accepted_by")
+            if not self.request.user.is_staff and (
+                own is None or accepted_by is None or accepted_by.id != own.id
+            ):
+                raise PermissionDenied("Du kannst den Tausch nur selbst annehmen.")
+
+        extra = {}
+        if new_status == "confirmed":
+            extra["decided_by"] = current_employee(self.request.user)
+        serializer.save(**extra)
+
+    def perform_destroy(self, instance):
+        own = current_employee(self.request.user)
+        if not self.request.user.is_staff and (
+            own is None or own.id != instance.offered_by_id
+        ):
+            raise PermissionDenied("Du kannst nur eigene Angebote zurückziehen.")
+        instance.delete()
+
+
+class PayrollExportView(APIView):
+    """
+    Abrechnungszeilen für die Lohnbuchhaltung (Phase 4).
+
+    Liefert je Person und Lohnart eine Zeile. Fehlende Monatsabschlüsse
+    werden mitgeliefert, damit niemand eine unvollständige Übergabe für
+    vollständig hält.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        require_staff(request, "Nur Mitarbeitende dürfen die Abrechnung abrufen.")
+        from .payroll import build_rows, missing_accounts, wage_types
+
+        year = int(request.query_params.get("jahr") or date.today().year)
+        month = int(request.query_params.get("monat") or date.today().month)
+
+        return Response(
+            {
+                "year": year,
+                "month": month,
+                "wage_types": {
+                    key: {"number": number, "label": label}
+                    for key, (number, label) in wage_types().items()
+                },
+                "rows": build_rows(request.user, year, month),
+                "missing_accounts": missing_accounts(request.user, year, month),
             }
         )

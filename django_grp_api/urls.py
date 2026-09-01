@@ -5,6 +5,7 @@ from rest_framework_nested import routers as nested_routers
 from django_grp_care import api as care_api
 from django_grp_duty import api as duty_api
 from django_grp_org import api as org_api
+from django_grp_org import auth_views as org_auth
 
 from . import views
 from .views import (
@@ -60,6 +61,11 @@ router.register(r"absence-type", duty_api.AbsenceTypeViewSet, "absence-type")
 router.register(r"absence", duty_api.AbsenceViewSet, "absence")
 router.register(r"time-entry", duty_api.TimeEntryViewSet, "time-entry")
 router.register(r"time-account", duty_api.TimeAccountViewSet, "time-account")
+router.register(
+    r"shift-preference", duty_api.ShiftPreferenceViewSet, "shift-preference"
+)
+router.register(r"shift-swap", duty_api.ShiftSwapViewSet, "shift-swap")
+router.register(r"audit", org_api.AuditEventViewSet, "audit")
 
 # ---- Hilfeplanung und Fallführung (Phase 5)
 router.register(r"case-file", care_api.CaseFileViewSet, "case-file")
@@ -90,6 +96,19 @@ duty_router.register(r"shift", duty_api.ShiftViewSet, basename="duty-shift")
 urlpatterns = [
     path("v1/auth/login/", LoginView.as_view(), name="auth-login"),
     path("v1/auth/logout/", LogoutView.as_view(), name="auth-logout"),
+    # Anmeldewege und Single Sign-on (Phase 0)
+    path("v1/auth/methods/", org_auth.AuthMethodsView.as_view(), name="auth-methods"),
+    path("v1/auth/oidc/start/", org_auth.OIDCStartView.as_view(), name="oidc-start"),
+    path(
+        "v1/auth/oidc/callback/",
+        org_auth.OIDCCallbackView.as_view(),
+        name="oidc-callback",
+    ),
+    path(
+        "v1/auth/oidc/exchange/",
+        org_auth.OIDCExchangeView.as_view(),
+        name="oidc-exchange",
+    ),
     path("v1/user/profile/", UserProfileView.as_view(), name="user-profile"),
     path("v1/user/me/", UserMeView.as_view(), name="user-me"),
     path("v1/", include(router.urls)),
@@ -129,6 +148,9 @@ urlpatterns = [
     ),
     path("v1/time-close/", duty_api.CloseMonthView.as_view(), name="time-close"),
     path("v1/my/duty/", duty_api.MyDutyView.as_view(), name="my-duty"),
+    path("v1/payroll/", duty_api.PayrollExportView.as_view(), name="payroll"),
+    # Ohne Anmeldung, damit Monitoring-Systeme sie abfragen koennen.
+    path("health/", org_api.HealthView.as_view(), name="health"),
     path(
         "v1/help-plan/<int:plan_id>/continue/",
         care_api.HelpPlanContinueView.as_view(),

@@ -61,6 +61,8 @@ MIDDLEWARE = [
     "x_forwarded_for.middleware.XForwardedForMiddleware",
     "django.middleware.gzip.GZipMiddleware",
     "django_auto_logout.middleware.auto_logout",
+    # Hinterlegt den angemeldeten Benutzer für das Änderungsprotokoll.
+    "django_grp_org.audit.AuditUserMiddleware",
 ]
 
 AUTO_LOGOUT = {
@@ -133,6 +135,84 @@ AUTH_PASSWORD_VALIDATORS = [
         "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
+
+# ============================================================================
+# Anmeldung (Roadmap Phase 0)
+#
+# Neben der lokalen Anmeldung stehen LDAP/Active Directory und OpenID Connect
+# zur Verfügung. Beide sind rein über Umgebungsvariablen konfigurierbar und
+# bleiben ohne Konfiguration wirkungslos - die bestehende Anmeldung mit
+# Benutzername und Passwort funktioniert unverändert weiter.
+# Einzelheiten in django_grp_org/authentication.py.
+# ============================================================================
+
+AUTHENTICATION_BACKENDS = [
+    "django_grp_org.authentication.LDAPBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+
+# Adresse des Frontends - dorthin führt die Weiterleitung nach dem SSO-Login.
+FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3000", cast=str)
+
+# LDAP / Active Directory
+LDAP_SERVER = config("LDAP_SERVER", default="", cast=str)
+LDAP_USER_DN_TEMPLATE = config("LDAP_USER_DN_TEMPLATE", default="{username}", cast=str)
+LDAP_SEARCH_BASE = config("LDAP_SEARCH_BASE", default="", cast=str)
+LDAP_USER_FILTER = config(
+    "LDAP_USER_FILTER",
+    default="(|(sAMAccountName={username})(uid={username}))",
+    cast=str,
+)
+LDAP_STAFF_GROUP = config("LDAP_STAFF_GROUP", default="", cast=str)
+
+# OpenID Connect
+OIDC_ISSUER = config("OIDC_ISSUER", default="", cast=str)
+OIDC_CLIENT_ID = config("OIDC_CLIENT_ID", default="", cast=str)
+OIDC_CLIENT_SECRET = config("OIDC_CLIENT_SECRET", default="", cast=str)
+OIDC_REDIRECT_URI = config("OIDC_REDIRECT_URI", default="", cast=str)
+OIDC_SCOPE = config("OIDC_SCOPE", default="openid profile email", cast=str)
+OIDC_STAFF_CLAIM = config("OIDC_STAFF_CLAIM", default="", cast=str)
+OIDC_STAFF_VALUE = config("OIDC_STAFF_VALUE", default="", cast=str)
+OIDC_LABEL = config("OIDC_LABEL", default="Single Sign-on", cast=str)
+
+# ============================================================================
+# Protokollierung im Betrieb (Roadmap Phase 9)
+# ============================================================================
+
+LOG_LEVEL = config("LOG_LEVEL", default="INFO", cast=str)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        # Ein Format, das sich sowohl lesen als auch maschinell auswerten
+        # laesst: Zeitpunkt, Stufe, Herkunft, Meldung.
+        "standard": {
+            "format": "{asctime} {levelname:<8} {name} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+        },
+    },
+    "root": {"handlers": ["console"], "level": "WARNING"},
+    "loggers": {
+        # Eigene Meldungen (Anmeldung, Aenderungsprotokoll) getrennt steuerbar.
+        "django_grp": {
+            "handlers": ["console"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
