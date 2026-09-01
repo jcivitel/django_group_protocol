@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from django_grp_org.models import Employee
+from django_grp_org.tenancy import limit_to_tenant
 
 from .models import (
     Absence,
@@ -140,7 +141,9 @@ class DutyPlanSerializer(serializers.ModelSerializer):
 class ShiftTypeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = ShiftTypeSerializer
-    queryset = ShiftType.objects.all()
+
+    def get_queryset(self):
+        return limit_to_tenant(ShiftType.objects.all(), self.request.user)
 
     def perform_create(self, serializer):
         require_staff(self.request)
@@ -158,12 +161,15 @@ class ShiftTypeViewSet(viewsets.ModelViewSet):
 class DutyPlanViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = DutyPlanSerializer
-    queryset = DutyPlan.objects.select_related("department__facility").prefetch_related(
-        "shifts"
-    )
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = limit_to_tenant(
+            DutyPlan.objects.select_related("department__facility").prefetch_related(
+                "shifts"
+            ),
+            self.request.user,
+            "department__facility__site__provider_id",
+        )
         department = self.request.query_params.get("bereich")
         year = self.request.query_params.get("jahr")
         month = self.request.query_params.get("monat")
@@ -353,7 +359,9 @@ class AbsenceSerializer(serializers.ModelSerializer):
 class AbsenceTypeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = AbsenceTypeSerializer
-    queryset = AbsenceType.objects.all()
+
+    def get_queryset(self):
+        return limit_to_tenant(AbsenceType.objects.all(), self.request.user)
 
     def perform_create(self, serializer):
         require_staff(self.request)
@@ -381,8 +389,10 @@ class AbsenceViewSet(viewsets.ModelViewSet):
     serializer_class = AbsenceSerializer
 
     def get_queryset(self):
-        queryset = Absence.objects.select_related(
-            "employee", "absence_type", "decided_by"
+        queryset = limit_to_tenant(
+            Absence.objects.select_related("employee", "absence_type", "decided_by"),
+            self.request.user,
+            "employee__provider_id",
         )
         if not self.request.user.is_staff:
             queryset = queryset.filter(employee__user=self.request.user)
@@ -528,7 +538,11 @@ class TimeEntryViewSet(viewsets.ModelViewSet):
     serializer_class = TimeEntrySerializer
 
     def get_queryset(self):
-        queryset = TimeEntry.objects.select_related("employee", "shift__shift_type")
+        queryset = limit_to_tenant(
+            TimeEntry.objects.select_related("employee", "shift__shift_type"),
+            self.request.user,
+            "employee__provider_id",
+        )
         if not self.request.user.is_staff:
             queryset = queryset.filter(employee__user=self.request.user)
 
@@ -585,7 +599,11 @@ class TimeAccountViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = TimeAccountSerializer
 
     def get_queryset(self):
-        queryset = TimeAccount.objects.select_related("employee")
+        queryset = limit_to_tenant(
+            TimeAccount.objects.select_related("employee"),
+            self.request.user,
+            "employee__provider_id",
+        )
         if not self.request.user.is_staff:
             queryset = queryset.filter(employee__user=self.request.user)
         year = self.request.query_params.get("jahr")
@@ -605,7 +623,9 @@ class CloseMonthView(APIView):
         month = int(request.data.get("month") or date.today().month)
         employee_ids = request.data.get("employees")
 
-        employees = Employee.objects.filter(left_on__isnull=True)
+        employees = limit_to_tenant(
+            Employee.objects.filter(left_on__isnull=True), request.user
+        )
         if employee_ids:
             employees = employees.filter(id__in=employee_ids)
 

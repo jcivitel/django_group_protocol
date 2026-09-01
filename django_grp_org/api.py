@@ -14,6 +14,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .tenancy import limit_to_tenant, tenant_providers
 from .models import (
     Contract,
     Department,
@@ -332,24 +333,42 @@ class PositionSerializer(serializers.ModelSerializer):
 
 class ProviderViewSet(StaffWritableViewSet):
     serializer_class = ProviderSerializer
-    queryset = Provider.objects.all()
+
+    def get_queryset(self):
+        return tenant_providers(self.request.user)
 
 
 class SiteViewSet(StaffWritableViewSet):
     serializer_class = SiteSerializer
-    queryset = Site.objects.select_related("provider")
+
+    def get_queryset(self):
+        return limit_to_tenant(
+            Site.objects.select_related("provider"), self.request.user
+        )
 
 
 class FacilityViewSet(StaffWritableViewSet):
     serializer_class = FacilitySerializer
-    queryset = Facility.objects.select_related("site")
+
+    def get_queryset(self):
+        return limit_to_tenant(
+            Facility.objects.select_related("site"),
+            self.request.user,
+            "site__provider_id",
+        )
 
 
 class DepartmentViewSet(StaffWritableViewSet):
     serializer_class = DepartmentSerializer
-    queryset = Department.objects.select_related("facility", "group").prefetch_related(
-        "positions"
-    )
+
+    def get_queryset(self):
+        return limit_to_tenant(
+            Department.objects.select_related("facility", "group").prefetch_related(
+                "positions"
+            ),
+            self.request.user,
+            "facility__site__provider_id",
+        )
 
 
 class QualificationViewSet(StaffWritableViewSet):
@@ -359,17 +378,21 @@ class QualificationViewSet(StaffWritableViewSet):
 
 class WorkTimeModelViewSet(StaffWritableViewSet):
     serializer_class = WorkTimeModelSerializer
-    queryset = WorkTimeModel.objects.all()
+
+    def get_queryset(self):
+        return limit_to_tenant(WorkTimeModel.objects.all(), self.request.user)
 
 
 class EmployeeViewSet(StaffWritableViewSet):
     serializer_class = EmployeeSerializer
-    queryset = Employee.objects.select_related("work_time_model").prefetch_related(
-        "qualifications"
-    )
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = limit_to_tenant(
+            Employee.objects.select_related("work_time_model").prefetch_related(
+                "qualifications"
+            ),
+            self.request.user,
+        )
         if self.request.query_params.get("aktiv") == "1":
             queryset = queryset.filter(left_on__isnull=True)
         return queryset
@@ -400,12 +423,15 @@ class RoleViewSet(StaffWritableViewSet):
 
 class PositionViewSet(StaffWritableViewSet):
     serializer_class = PositionSerializer
-    queryset = Position.objects.select_related("department").prefetch_related(
-        "assignments__employee"
-    )
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = limit_to_tenant(
+            Position.objects.select_related("department").prefetch_related(
+                "assignments__employee"
+            ),
+            self.request.user,
+            "department__facility__site__provider_id",
+        )
         department = self.request.query_params.get("bereich")
         if department:
             queryset = queryset.filter(department_id=department)
@@ -428,9 +454,13 @@ class StaffingPlanView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        departments = Department.objects.select_related(
-            "facility__site"
-        ).prefetch_related("positions__assignments__employee")
+        departments = limit_to_tenant(
+            Department.objects.select_related("facility__site").prefetch_related(
+                "positions__assignments__employee"
+            ),
+            request.user,
+            "facility__site__provider_id",
+        )
 
         data = []
         for department in departments:

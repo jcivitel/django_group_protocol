@@ -236,7 +236,11 @@ class Command(BaseCommand):
             if employee.roles.exists():
                 continue
             # Staff wird Leitung, alle anderen Fachkraft - anpassbar im Admin.
-            role = "management" if employee.user and employee.user.is_staff else "specialist"
+            role = (
+                "management"
+                if employee.user and employee.user.is_staff
+                else "specialist"
+            )
             Role.objects.create(
                 employee=employee,
                 role=role,
