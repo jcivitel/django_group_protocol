@@ -17,6 +17,7 @@ from django_grp_backend.models import (
     Protocol,
     Group,
     Resident,
+    ResidentContact,
     ProtocolAttendance,
     ProtocolObservation,
     ProtocolPresence,
@@ -33,6 +34,7 @@ from .serializers import (
     ProtocolSummarySerializer,
     GroupSerializer,
     ResidentSerializer,
+    ResidentContactSerializer,
     ResidentPictureUploadSerializer,
     ItemSerializer,
     ProtocolTodoSerializer,
@@ -201,6 +203,42 @@ class ResidentViewSet(viewsets.ModelViewSet):
         """Filter residents by user group membership or staff status."""
         user = self.request.user
         return Resident.objects.for_user(user)
+
+
+class ResidentContactViewSet(viewsets.ModelViewSet):
+    """
+    Kontaktdaten zu einer Bewohnerin oder einem Bewohner.
+
+    /api/v1/resident/{resident_id}/contact/
+
+    Wer die Bewohnerakte sehen darf, darf auch die Kontakte pflegen: eine
+    neue Handynummer der Mutter erfaehrt die Gruppe, nicht die Verwaltung.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ResidentContactSerializer
+
+    def get_resident(self):
+        """Bewohner aus der URL, sofern der Benutzer darauf zugreifen darf."""
+        return (
+            Resident.objects.for_user(self.request.user)
+            .filter(id=self.kwargs.get("resident_pk"))
+            .first()
+        )
+
+    def get_queryset(self):
+        resident = self.get_resident()
+        if resident is None:
+            return ResidentContact.objects.none()
+        return ResidentContact.objects.filter(resident=resident)
+
+    def perform_create(self, serializer):
+        resident = self.get_resident()
+        if resident is None:
+            raise ValidationError(
+                "Bewohner nicht gefunden oder kein Zugriff."
+            )
+        serializer.save(resident=resident)
 
 
 class ProtocolScopedViewSet(viewsets.ModelViewSet):

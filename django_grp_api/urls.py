@@ -88,6 +88,14 @@ protocol_router.register(
     r"observation", views.ProtocolObservationViewSet, basename="protocol-observation"
 )
 
+# Kontakte haengen immer an einer Bewohnerakte.
+resident_router = nested_routers.NestedSimpleRouter(
+    router, r"resident", lookup="resident"
+)
+resident_router.register(
+    r"contact", views.ResidentContactViewSet, basename="resident-contact"
+)
+
 # Dienste haengen immer an einem Dienstplan.
 duty_router = nested_routers.NestedSimpleRouter(router, r"duty-plan", lookup="plan")
 duty_router.register(r"shift", duty_api.ShiftViewSet, basename="duty-shift")
@@ -100,6 +108,7 @@ urlpatterns = [
     path("v1/", include(router.urls)),
     path("v1/", include(protocol_router.urls)),
     path("v1/", include(duty_router.urls)),
+    path("v1/", include(resident_router.urls)),
     # Aktionen bewusst unter eigenen Praefixen, damit sie nicht mit den
     # Detail-Routen der Router kollidieren (z. B. /time-entry/{id}/).
     path(

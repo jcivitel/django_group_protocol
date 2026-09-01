@@ -11,6 +11,7 @@ from django_grp_backend.models import (
     ProtocolTodo,
     Group,
     Resident,
+    ResidentContact,
     ProtocolPresence,
     UserPermission,
 )
@@ -178,6 +179,37 @@ class ResidentSerializer(serializers.ModelSerializer):
         except (AttributeError, TypeError):
             pass
         return None
+
+
+class ResidentContactSerializer(serializers.ModelSerializer):
+    """Kontaktdaten der Erziehungsberechtigten und Bezugspersonen."""
+
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+    reachability = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = ResidentContact
+        fields = [
+            "id",
+            "resident",
+            "kind",
+            "kind_display",
+            "name",
+            "relationship",
+            "organisation",
+            "phone",
+            "mobile",
+            "email",
+            "address",
+            "has_custody",
+            "is_emergency",
+            "note",
+            "position",
+            "reachability",
+        ]
+        # resident kommt aus der URL, nicht aus dem Rumpf - sonst koennte ein
+        # Kontakt an eine fremde Bewohnerakte gehaengt werden.
+        read_only_fields = ["id", "resident", "kind_display", "reachability"]
 
 
 class ResidentPictureUploadSerializer(serializers.ModelSerializer):
