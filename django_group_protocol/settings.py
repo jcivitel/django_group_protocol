@@ -137,45 +137,6 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # ============================================================================
-# Anmeldung (Roadmap Phase 0)
-#
-# Neben der lokalen Anmeldung stehen LDAP/Active Directory und OpenID Connect
-# zur Verfügung. Beide sind rein über Umgebungsvariablen konfigurierbar und
-# bleiben ohne Konfiguration wirkungslos - die bestehende Anmeldung mit
-# Benutzername und Passwort funktioniert unverändert weiter.
-# Einzelheiten in django_grp_org/authentication.py.
-# ============================================================================
-
-AUTHENTICATION_BACKENDS = [
-    "django_grp_org.authentication.LDAPBackend",
-    "django.contrib.auth.backends.ModelBackend",
-]
-
-# Adresse des Frontends - dorthin führt die Weiterleitung nach dem SSO-Login.
-FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3000", cast=str)
-
-# LDAP / Active Directory
-LDAP_SERVER = config("LDAP_SERVER", default="", cast=str)
-LDAP_USER_DN_TEMPLATE = config("LDAP_USER_DN_TEMPLATE", default="{username}", cast=str)
-LDAP_SEARCH_BASE = config("LDAP_SEARCH_BASE", default="", cast=str)
-LDAP_USER_FILTER = config(
-    "LDAP_USER_FILTER",
-    default="(|(sAMAccountName={username})(uid={username}))",
-    cast=str,
-)
-LDAP_STAFF_GROUP = config("LDAP_STAFF_GROUP", default="", cast=str)
-
-# OpenID Connect
-OIDC_ISSUER = config("OIDC_ISSUER", default="", cast=str)
-OIDC_CLIENT_ID = config("OIDC_CLIENT_ID", default="", cast=str)
-OIDC_CLIENT_SECRET = config("OIDC_CLIENT_SECRET", default="", cast=str)
-OIDC_REDIRECT_URI = config("OIDC_REDIRECT_URI", default="", cast=str)
-OIDC_SCOPE = config("OIDC_SCOPE", default="openid profile email", cast=str)
-OIDC_STAFF_CLAIM = config("OIDC_STAFF_CLAIM", default="", cast=str)
-OIDC_STAFF_VALUE = config("OIDC_STAFF_VALUE", default="", cast=str)
-OIDC_LABEL = config("OIDC_LABEL", default="Single Sign-on", cast=str)
-
-# ============================================================================
 # Protokollierung im Betrieb (Roadmap Phase 9)
 # ============================================================================
 
