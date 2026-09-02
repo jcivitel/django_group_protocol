@@ -42,7 +42,11 @@ class OrganisationSetupView(APIView):
 
     def post(self, request):
         from django_grp_backend.models import Group
-        from django_grp_org.defaults import ensure_worktime_models
+        from django_grp_duty.models import ShiftType
+        from django_grp_org.defaults import (
+            ensure_shift_types,
+            ensure_worktime_models,
+        )
         from django_grp_org.models import (
             Department,
             Employee,
@@ -130,6 +134,8 @@ class OrganisationSetupView(APIView):
                 # Traeger vor - ohne diese Zeile begaenne der Betrieb mit
                 # einer leeren Auswahlliste.
                 ensure_worktime_models(WorkTimeModel, provider)
+                # Ohne Dienstart erzeugt spaeter kein Dienstplan Dienste.
+                ensure_shift_types(ShiftType, provider)
 
                 # Der einrichtenden Person einen Personaldatensatz geben,
                 # falls sie noch keinen hat. Ohne ihn taucht das eigene
