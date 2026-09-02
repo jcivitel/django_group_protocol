@@ -23,20 +23,31 @@ from django.dispatch import receiver
 
 logger = logging.getLogger("django_grp.audit")
 
-# Der Benutzer des laufenden Requests, gesetzt von AuditUserMiddleware.
-_current_user = contextvars.ContextVar("audit_user", default=None)
+# Der laufende Request, hinterlegt von AuditUserMiddleware.
+#
+# Hier steht der REQUEST und nicht der Benutzer, und das ist der Punkt: die
+# Middleware laeuft vor der View, und zu dem Zeitpunkt kennt Django nur die
+# Sitzung. Angemeldet wird hier aber per DRF-Token, und das prueft erst die
+# View - sie setzt request.user danach nach. Wer den Benutzer schon in der
+# Middleware herausgreift, haelt fuer immer den anonymen Stand fest, und im
+# Aenderungsprotokoll steht bei jedem Eintrag eine leere Spalte "Benutzer".
+_current_request = contextvars.ContextVar("audit_request", default=None)
 
 
-def set_current_user(user):
-    return _current_user.set(user)
+def set_current_request(request):
+    return _current_request.set(request)
 
 
-def reset_current_user(token):
-    _current_user.reset(token)
+def reset_current_request(token):
+    _current_request.reset(token)
 
 
 def get_current_user():
-    user = _current_user.get()
+    """Der Benutzer, wie er JETZT am Request steht - nicht wie beim Eintritt."""
+    request = _current_request.get()
+    if request is None:
+        return None
+    user = getattr(request, "user", None)
     return user if user and getattr(user, "is_authenticated", False) else None
 
 
@@ -242,14 +253,14 @@ def _write(key, instance, action, changes, username):
 
 
 class AuditUserMiddleware:
-    """Hinterlegt den angemeldeten Benutzer für die Signale."""
+    """Hinterlegt den laufenden Request für die Signale."""
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        token = set_current_user(getattr(request, "user", None))
+        token = set_current_request(request)
         try:
             return self.get_response(request)
         finally:
-            reset_current_user(token)
+            reset_current_request(token)

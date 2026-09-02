@@ -283,7 +283,9 @@ class TimeEntry(models.Model):
     )
     date = models.DateField(verbose_name="Datum")
     start_time = models.TimeField(verbose_name="Beginn")
-    end_time = models.TimeField(verbose_name="Ende")
+    # Leer, solange gestempelt und noch nicht abgestempelt ist. Eine offene
+    # Buchung zaehlt nirgends mit - siehe hours().
+    end_time = models.TimeField(blank=True, null=True, verbose_name="Ende")
     break_minutes = models.PositiveIntegerField(
         default=0, verbose_name="Pause in Minuten"
     )
@@ -300,10 +302,23 @@ class TimeEntry(models.Model):
         verbose_name_plural = "Zeitbuchungen"
 
     def __str__(self) -> str:
-        return f"{self.employee} {self.date} {self.start_time}–{self.end_time}"
+        ende = self.end_time if self.end_time else "offen"
+        return f"{self.employee} {self.date} {self.start_time}–{ende}"
+
+    @property
+    def is_running(self) -> bool:
+        """Gestempelt, aber noch nicht abgestempelt."""
+        return self.end_time is None
 
     @property
     def hours(self) -> Decimal:
+        # Eine laufende Buchung traegt noch nichts bei. Erst beim Abstempeln
+        # steht fest, wie lange sie war - bis dahin waere jede Zahl geraten,
+        # und geratene Stunden landen sonst im Zeitkonto und in der
+        # Lohnabrechnung.
+        if self.end_time is None:
+            return Decimal("0.00")
+
         base = datetime(2000, 1, 1)
         start = base.replace(hour=self.start_time.hour, minute=self.start_time.minute)
         end = base.replace(hour=self.end_time.hour, minute=self.end_time.minute)
