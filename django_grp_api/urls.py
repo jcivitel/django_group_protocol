@@ -55,6 +55,11 @@ router.register(
 
 # ---- Dienst, Abwesenheit, Zeit (Phasen 2 bis 4)
 router.register(r"shift-type", duty_api.ShiftTypeViewSet, "shift-type")
+router.register(
+    r"staffing-requirement",
+    duty_api.StaffingRequirementViewSet,
+    "staffing-requirement",
+)
 router.register(r"duty-plan", duty_api.DutyPlanViewSet, "duty-plan")
 router.register(r"absence-type", duty_api.AbsenceTypeViewSet, "absence-type")
 router.register(r"absence", duty_api.AbsenceViewSet, "absence")

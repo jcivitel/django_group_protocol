@@ -75,6 +75,97 @@ class ShiftType(models.Model):
         return (Decimal(minutes) / Decimal(60)).quantize(Decimal("0.01"))
 
 
+class StaffingRequirement(models.Model):
+    """
+    Wie viele Menschen wann im Dienst sein muessen.
+
+    Department.minimum_staff ist eine Zahl fuer den ganzen Tag. Das reicht in
+    einer Wohngruppe nicht: nachts genuegt eine Bereitschaft, am Nachmittag
+    braucht es drei, und am Wochenende sieht der Tag ohnehin anders aus als
+    unter der Woche.
+
+    Jede Zeile gilt entweder fuer eine Dienstart ODER fuer ein
+    Uhrzeit-Fenster:
+
+    - **Dienstart** - "im Spaetdienst muessen zwei da sein, davon eine
+      Fachkraft". Einfach zu pflegen, solange der Plan aus Dienstarten
+      besteht.
+    - **Uhrzeit-Fenster** - "zwischen 14 und 20 Uhr muessen drei da sein".
+      Greift quer ueber die Dienstarten und faengt die Luecke, die entsteht,
+      wenn Frueh- und Spaetdienst sich nur kurz ueberschneiden.
+
+    Beides zugleich waere doppelt gemoppelt, keines von beidem waere wieder
+    die alte Tageszahl - clean() besteht deshalb auf genau einem von beiden.
+
+    Gibt es fuer einen Bereich keine einzige Zeile, prueft die Regelpruefung
+    weiter gegen Department.minimum_staff. Bestehende Plaene aendern also
+    ihr Verhalten nicht, bloss weil dieses Modell dazugekommen ist.
+    """
+
+    department = fk(
+        Department,
+        related_name="staffing_requirements",
+        verbose_name="Bereich",
+    )
+    shift_type = fk(
+        ShiftType,
+        related_name="staffing_requirements",
+        blank=True,
+        null=True,
+        verbose_name="Dienstart",
+        help_text="Leer lassen, wenn stattdessen ein Uhrzeit-Fenster gilt",
+    )
+    starts_at = models.TimeField(blank=True, null=True, verbose_name="Ab")
+    ends_at = models.TimeField(blank=True, null=True, verbose_name="Bis")
+
+    minimum_staff = models.PositiveIntegerField(
+        default=2, verbose_name="Mindestens Personen"
+    )
+    minimum_specialists = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Davon Fachkräfte",
+        help_text="0, wenn hier keine Fachkraft vorgeschrieben ist",
+    )
+    note = models.CharField(max_length=200, blank=True, default="")
+
+    class Meta:
+        ordering = ["department", "starts_at", "shift_type"]
+        verbose_name = "Besetzungsvorgabe"
+        verbose_name_plural = "Besetzungsvorgaben"
+
+    def __str__(self) -> str:
+        return f"{self.department}: {self.scope_label} – {self.minimum_staff}"
+
+    @property
+    def by_shift_type(self) -> bool:
+        return self.shift_type_id is not None
+
+    @property
+    def scope_label(self) -> str:
+        if self.by_shift_type:
+            return str(self.shift_type)
+        if self.starts_at and self.ends_at:
+            return f"{self.starts_at:%H:%M}–{self.ends_at:%H:%M}"
+        return "ohne Geltungsbereich"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        hat_fenster = bool(self.starts_at and self.ends_at)
+        if self.by_shift_type and hat_fenster:
+            raise ValidationError(
+                "Entweder eine Dienstart oder ein Uhrzeit-Fenster, nicht beides."
+            )
+        if not self.by_shift_type and not hat_fenster:
+            raise ValidationError(
+                "Bitte eine Dienstart wählen oder ein Uhrzeit-Fenster angeben."
+            )
+        if self.minimum_specialists > self.minimum_staff:
+            raise ValidationError(
+                "Es können nicht mehr Fachkräfte gefordert sein als Personen."
+            )
+
+
 class DutyPlan(models.Model):
     """Dienstplan eines Bereichs für einen Monat."""
 

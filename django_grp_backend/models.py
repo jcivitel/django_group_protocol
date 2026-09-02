@@ -596,22 +596,31 @@ class ProtocolObservation(models.Model):
 
 @receiver(post_save, sender=Protocol)
 def create_protocol_presence(sender, instance, created, **kwargs):
+    """
+    Das Team der Gruppe steht von Anfang an im Protokoll.
+
+    Wer zum Team gehoert, ist bekannt und aendert sich selten - die Liste
+    braucht deshalb nur noch ein Ja/Nein je Person. Waere sie leer, muesste
+    die Fachkraft abends erst ihre Kolleginnen zusammensuchen, um
+    festzuhalten, wer da war.
+    """
     if created:
         users_in_group = instance.group.group_members.all()
         for user in users_in_group:
             ProtocolPresence.objects.create(protocol=instance, user=user)
 
 
-@receiver(post_save, sender=Protocol)
-def create_protocol_attendance(sender, instance, created, **kwargs):
-    """Aktive Bewohner der Gruppe als Teilnehmende vorbereiten."""
-    if not created:
-        return
-    residents = Resident.objects.filter(
-        group=instance.group, moved_out_since__isnull=True
-    )
-    for resident in residents:
-        ProtocolAttendance.objects.get_or_create(protocol=instance, resident=resident)
+# Die Teilnehmenden entstehen NICHT automatisch.
+#
+# Frueher legte ein zweites Signal hier fuer jeden aktiven Bewohner der
+# Gruppe einen Eintrag an, alle mit was_present=True. Das kehrt die Frage um:
+# statt einzutragen, wer da war, musste man wegklicken, wer nicht da war -
+# und wer das vergisst, hat eine Teilnahmeliste dokumentiert, die niemand je
+# bestaetigt hat. Bei einem Angebot fuer drei von zwoelf Jugendlichen ist das
+# schlicht falsch.
+#
+# Beim Team ist es umgekehrt richtig (siehe oben): dort steht die Runde
+# vorher fest, hier nicht.
 
 
 @receiver(post_save, sender=Protocol)
