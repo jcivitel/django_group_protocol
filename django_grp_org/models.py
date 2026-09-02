@@ -16,6 +16,10 @@ from decimal import Decimal
 
 from django.contrib.auth.models import User
 from django.db import models
+from PIL import Image
+
+from django_grp_backend.functions import validate_image
+from django_grp_backend.models import RandomizedFileName
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -317,12 +321,33 @@ class Employee(models.Model):
         related_name="employees",
         blank=True,
     )
+    picture = models.ImageField(
+        blank=True,
+        null=True,
+        upload_to=RandomizedFileName(),
+        validators=[validate_image],
+        verbose_name="Foto",
+    )
     notes = models.TextField(blank=True, default="", verbose_name="Notizen")
 
     class Meta:
         ordering = ["last_name", "first_name"]
         verbose_name = "Mitarbeitende"
         verbose_name_plural = "Mitarbeitende"
+
+    def save(self, *args, **kwargs):
+        """
+        Wie beim Bewohner: das Bild nach dem Speichern auf 800 Pixel bringen.
+
+        Ein Portraet aus einer Handykamera hat sonst mehrere Megabyte, und im
+        Dienstplan steht es als Kreis von vierzig Pixeln.
+        """
+        super().save(*args, **kwargs)
+        if self.picture:
+            bild = Image.open(self.picture.path)
+            if bild.height > 800 or bild.width > 800:
+                bild.thumbnail((800, 800))
+                bild.save(self.picture.path)
 
     def __str__(self) -> str:
         return self.get_full_name()

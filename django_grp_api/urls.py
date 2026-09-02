@@ -177,6 +177,11 @@ urlpatterns = [
         name="resident-upload-picture",
     ),
     path(
+        "v1/employee/<int:employee_id>/picture/",
+        org_api.EmployeePictureView.as_view(),
+        name="employee-picture",
+    ),
+    path(
         "v1/group/<int:group_id>/pdf_template/",
         GroupPDFTemplateView.as_view(),
         name="group-pdf-template",

@@ -92,9 +92,20 @@ def find_substitutes(shift) -> list[dict]:
         if shift.shift_type.counts_specialist and not is_specialist:
             reasons.append("keine Fachkraftqualifikation")
 
+        # Zwei Wege gehoeren zum Bereich: eine Stellenbesetzung darin, oder
+        # Mitgliedschaft in der Gruppe, die am Bereich haengt.
+        #
+        # Nur die Stellenbesetzung zu pruefen war zu eng: der Stellplan wird
+        # in vielen Haeusern gar nicht gepflegt, die Gruppenzuordnung dagegen
+        # immer - ohne sie sieht niemand seine Protokolle. Wer der Gruppe
+        # zugeteilt ist, arbeitet dort, auch ohne hinterlegte Planstelle.
         in_department = employee.assignments.filter(
             position__department=department
         ).exists()
+        if not in_department and department.group_id and employee.user_id:
+            in_department = department.group.group_members.filter(
+                id=employee.user_id
+            ).exists()
         if not in_department:
             reasons.append("arbeitet sonst nicht in diesem Bereich")
 
