@@ -14,7 +14,10 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+
 from django_grp_backend.access import WriteNeedsRole, is_admin
+from django_grp_backend.functions import upload_too_large
 from .audit import AuditEvent
 from .tenancy import limit_to_tenant, tenant_providers
 from .models import (
@@ -212,6 +215,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
     is_active = serializers.BooleanField(read_only=True)
     qualification_names = serializers.SerializerMethodField()
     work_time_model_name = serializers.SerializerMethodField()
+    picture = serializers.SerializerMethodField()
 
     # Der Zugang gehört zur Person, nicht in eine zweite Liste.
     access_level_display = serializers.CharField(
@@ -252,6 +256,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "left_on",
             "work_time_model",
             "work_time_model_name",
+            "picture",
             "qualification_names",
             "is_specialist",
             "is_active",
@@ -266,6 +271,15 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "set_account_active",
             "set_group_ids",
         ]
+
+    def get_picture(self, obj):
+        """Volle Adresse, damit das Frontend sie direkt verwenden kann."""
+        if not obj.picture:
+            return None
+        request = self.context.get("request")
+        if request is not None:
+            return request.build_absolute_uri(obj.picture.url)
+        return obj.picture.url
 
     def get_full_name(self, obj):
         return obj.get_full_name()
@@ -341,7 +355,12 @@ class EmployeeSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         account = {
             key: validated_data.pop(key)
-            for key in ("password", "set_username", "set_account_active", "set_group_ids")
+            for key in (
+                "password",
+                "set_username",
+                "set_account_active",
+                "set_group_ids",
+            )
             if key in validated_data
         }
         employee = super().create(validated_data)
@@ -354,7 +373,12 @@ class EmployeeSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         account = {
             key: validated_data.pop(key)
-            for key in ("password", "set_username", "set_account_active", "set_group_ids")
+            for key in (
+                "password",
+                "set_username",
+                "set_account_active",
+                "set_group_ids",
+            )
             if key in validated_data
         }
         employee = super().update(instance, validated_data)
@@ -558,6 +582,74 @@ class PositionViewSet(StaffWritableViewSet):
 class PositionAssignmentViewSet(StaffWritableViewSet):
     serializer_class = PositionAssignmentSerializer
     queryset = PositionAssignment.objects.select_related("employee", "position")
+
+
+class EmployeePictureView(APIView):
+    """
+    Foto einer Person hochladen oder entfernen.
+
+    POST   /api/v1/employee/{id}/picture/   multipart, Feld "picture"
+    DELETE /api/v1/employee/{id}/picture/
+
+    Gebaut wie beim Bewohner: das Modell verkleinert beim Speichern auf 800
+    Pixel, und Loeschen entfernt auch die Datei - nicht nur den Verweis.
+    """
+
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
+
+    def _employee(self, request, employee_id: int):
+        return (
+            limit_to_tenant(Employee.objects.all(), request.user, "provider_id")
+            .filter(id=employee_id)
+            .first()
+        )
+
+    def post(self, request, employee_id: int):
+        employee = self._employee(request, employee_id)
+        if employee is None:
+            return Response({"error": "Person nicht gefunden."}, status=404)
+        if not is_admin(request.user) and employee.user_id != request.user.id:
+            return Response(
+                {"error": "Nur die Verwaltung oder die Person selbst."}, status=403
+            )
+
+        datei = request.FILES.get("picture")
+        if datei is None:
+            return Response({"error": "Es fehlt eine Bilddatei."}, status=400)
+
+        zu_gross = upload_too_large(datei)
+        if zu_gross:
+            return Response({"error": zu_gross}, status=400)
+
+        employee.picture = datei
+        try:
+            employee.full_clean(
+                exclude=[f.name for f in Employee._meta.fields if f.name != "picture"]
+            )
+        except DjangoValidationError as fehler:
+            return Response({"error": " ".join(fehler.messages)}, status=400)
+        employee.save()
+
+        return Response(
+            {"picture": request.build_absolute_uri(employee.picture.url)}, status=200
+        )
+
+    def delete(self, request, employee_id: int):
+        employee = self._employee(request, employee_id)
+        if employee is None:
+            return Response({"error": "Person nicht gefunden."}, status=404)
+        if not is_admin(request.user) and employee.user_id != request.user.id:
+            return Response(
+                {"error": "Nur die Verwaltung oder die Person selbst."}, status=403
+            )
+
+        if not employee.picture:
+            return Response(status=204)
+
+        employee.picture.delete(save=False)
+        employee.picture = None
+        employee.save(update_fields=["picture"])
+        return Response(status=204)
 
 
 class StaffingPlanView(APIView):

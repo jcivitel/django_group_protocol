@@ -236,9 +236,7 @@ class ResidentContactViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         resident = self.get_resident()
         if resident is None:
-            raise ValidationError(
-                "Bewohner nicht gefunden oder kein Zugriff."
-            )
+            raise ValidationError("Bewohner nicht gefunden oder kein Zugriff.")
         serializer.save(resident=resident)
 
 
@@ -733,6 +731,29 @@ class ResidentPictureView(APIView):
                 {"error": "Resident not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
+    def delete(self, request, resident_id: int):
+        """
+        Foto entfernen.
+
+        Loescht auch die Datei, nicht nur den Verweis darauf - ein Bild eines
+        Kindes, das niemand mehr sehen soll, hat auf der Platte nichts mehr
+        verloren.
+        """
+        try:
+            resident = Resident.objects.for_user(request.user).get(id=resident_id)
+        except Resident.DoesNotExist:
+            return Response(
+                {"error": "Resident not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        if not resident.picture:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        resident.picture.delete(save=False)
+        resident.picture = None
+        resident.save(update_fields=["picture"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class ResidentPictureUploadView(APIView):
     """
@@ -910,6 +931,35 @@ class GroupPDFTemplateView(APIView):
             return Response(
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    def delete(self, request, group_id: int):
+        """
+        Briefbogen entfernen - danach exportiert die Gruppe wieder schmucklos.
+
+        Dieselbe Rechtepruefung wie beim Hochladen: wer den Briefbogen setzen
+        darf, darf ihn auch wieder wegnehmen.
+        """
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return Response(
+                {"error": "Group not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        is_member = group.group_members.filter(id=request.user.id).exists()
+        if not is_member and not is_admin(request.user):
+            return Response(
+                {"error": "You do not have permission to update this group"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if not group.pdf_template:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        group.pdf_template.delete(save=False)
+        group.pdf_template = None
+        group.save(update_fields=["pdf_template"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ProtocolExportedFileView(APIView):
