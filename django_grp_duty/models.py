@@ -65,7 +65,16 @@ class ShiftType(models.Model):
 
     @property
     def duration_hours(self) -> Decimal:
-        """Netto-Dauer in Stunden. Dienste über Mitternacht werden mitgezählt."""
+        """
+        Netto-Dauer in Stunden. Dienste über Mitternacht werden mitgezählt.
+
+        Gleicher Beginn und gleiches Ende heisst null, nicht vierundzwanzig:
+        die Regel "Ende <= Beginn bedeutet ueber Mitternacht" stimmt fuer
+        21:00-07:00, aber nicht fuer 00:00-00:00.
+        """
+        if self.start_time == self.end_time:
+            return Decimal("0.00")
+
         base = datetime(2000, 1, 1)
         start = base.replace(hour=self.start_time.hour, minute=self.start_time.minute)
         end = base.replace(hour=self.end_time.hour, minute=self.end_time.minute)

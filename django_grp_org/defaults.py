@@ -41,6 +41,62 @@ DEFAULT_WORKTIME_MODELS = [
 ]
 
 
+# Dienstarten. Ohne mindestens eine erzeugt ein Dienstplan gar keine
+# Dienste - das Raster bleibt leer und die Dienstplanung wirkt kaputt. Es
+# gab bis hierher keine Oberflaeche, um welche anzulegen; die Vorgaben sind
+# deshalb nicht nur Bequemlichkeit, sondern der Unterschied zwischen einem
+# nutzbaren und einem toten Modul.
+#
+# Zeiten nach dem ueblichen Schichtbild einer Wohngruppe. Farben aus der
+# Palette der Anwendung, damit das Raster von Anfang an lesbar ist.
+DEFAULT_SHIFT_TYPES = [
+    # Kuerzel, Name, Beginn, Ende, Pause, Farbe, Nacht, Bereitschaft, Fachkraft
+    ("F", "Frühdienst", "06:30", "14:30", 30, "#abc270", False, False, True),
+    ("Z", "Zwischendienst", "09:00", "17:00", 30, "#fec868", False, False, True),
+    ("S", "Spätdienst", "13:30", "21:30", 30, "#fda769", False, False, True),
+    ("N", "Nachtbereitschaft", "21:00", "07:00", 0, "#473c33", True, True, False),
+]
+
+
+def ensure_shift_types(ShiftType, provider) -> int:
+    """
+    Legt fehlende Dienstarten für einen Träger an.
+
+    Bewusst keine Dienstart "Frei": eine Zelle ohne Dienst heisst bereits
+    "nicht eingeteilt", und eine Dienstart von 00:00 bis 00:00 rechnet
+    duration_hours als Nachtdienst ueber Mitternacht - also 24 Stunden
+    Arbeitszeit fuer einen freien Tag.
+    """
+    created = 0
+    for (
+        short_code,
+        name,
+        start,
+        end,
+        pause,
+        color,
+        is_night,
+        is_on_call,
+        counts,
+    ) in DEFAULT_SHIFT_TYPES:
+        _, made = ShiftType.objects.get_or_create(
+            provider=provider,
+            short_code=short_code,
+            defaults={
+                "name": name,
+                "start_time": start,
+                "end_time": end,
+                "break_minutes": pause,
+                "color": color,
+                "is_night": is_night,
+                "is_on_call": is_on_call,
+                "counts_specialist": counts,
+            },
+        )
+        created += int(made)
+    return created
+
+
 def ensure_qualifications(Qualification) -> int:
     """
     Legt fehlende Qualifikationen an. Gibt zurueck, wie viele dazukamen.
