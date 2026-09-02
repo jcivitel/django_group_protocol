@@ -42,12 +42,14 @@ class OrganisationSetupView(APIView):
 
     def post(self, request):
         from django_grp_backend.models import Group
+        from django_grp_org.defaults import ensure_worktime_models
         from django_grp_org.models import (
             Department,
             Employee,
             Facility,
             Provider,
             Site,
+            WorkTimeModel,
         )
 
         if not is_admin(request.user):
@@ -121,6 +123,13 @@ class OrganisationSetupView(APIView):
                     name=department_name,
                     group=group,
                 )
+
+                # Arbeitszeitmodelle haengen am Traeger und koennen deshalb
+                # erst hier entstehen. Die Migration, die dieselben Vorgaben
+                # anlegt, findet bei einer frischen Installation noch keinen
+                # Traeger vor - ohne diese Zeile begaenne der Betrieb mit
+                # einer leeren Auswahlliste.
+                ensure_worktime_models(WorkTimeModel, provider)
 
                 # Der einrichtenden Person einen Personaldatensatz geben,
                 # falls sie noch keinen hat. Ohne ihn taucht das eigene

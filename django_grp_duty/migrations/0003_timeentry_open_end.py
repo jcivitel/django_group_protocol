@@ -17,13 +17,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('django_grp_duty', '0002_shiftswap_shiftpreference'),
+        ("django_grp_duty", "0002_shiftswap_shiftpreference"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='timeentry',
-            name='end_time',
-            field=models.TimeField(blank=True, null=True, verbose_name='Ende'),
+            model_name="timeentry",
+            name="end_time",
+            field=models.TimeField(blank=True, null=True, verbose_name="Ende"),
         ),
     ]
