@@ -17,7 +17,7 @@ Middleware ihn in einem contextvar - Signale kennen den Request sonst nicht.
 import contextvars
 import logging
 
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
@@ -78,7 +78,12 @@ class AuditEvent(models.Model):
 
 
 # Welche Modelle beobachtet werden und welche Felder dabei uninteressant sind.
+#
+# Die Liste beantwortet die Frage „wer hat das wann geändert" für alles, wo
+# sie bei einer Prüfung berechtigt ist. Sie ist nach Anlass gruppiert, damit
+# beim nächsten neuen Modell auffällt, ob es hierher gehört.
 WATCHED = {
+    # Personal und Fallführung.
     "django_grp_org.Employee",
     "django_grp_org.Contract",
     "django_grp_org.Role",
@@ -86,7 +91,36 @@ WATCHED = {
     "django_grp_org.Position",
     "django_grp_care.CaseFile",
     "django_grp_care.HelpPlan",
+    # Organisationsstruktur. Seit sie sich in der Anwendung ändern lässt und
+    # nicht mehr nur im Django-Admin, gehört sie hierher. Am Bereich hängen
+    # Mindestbesetzung und Fachkraftquote - wer die herabsetzt, verändert,
+    # was die Dienstplanung überhaupt noch bemängelt.
+    "django_grp_org.Provider",
+    "django_grp_org.Site",
+    "django_grp_org.Facility",
+    "django_grp_org.Department",
+    # Stammdaten, aus denen die Dienstplanung ihre Urteile ableitet.
+    "django_grp_org.Qualification",
+    "django_grp_org.WorkTimeModel",
+    "django_grp_org.EmployeeQualification",
+    # Bewohner. Selten geändert, dafür die empfindlichsten Daten im Haus.
+    "django_grp_backend.Resident",
+    "django_grp_backend.ResidentContact",
+    # Konfiguration und Zugriff. UserPermission entscheidet, wer welche
+    # Gruppe sehen und ändern darf - bei einer Prüfung die erste Frage.
+    "django_grp_backend.Group",
+    "django_grp_backend.UserPermission",
+    "django_grp_backend.ProtocolTemplate",
 }
+
+# Bewusst NICHT beobachtet: die Fachdaten des Alltags. Protokolleinträge und
+# Aufgaben (ProtocolItem, ProtocolTodo), Dienste und Zeitbuchungen (Shift,
+# TimeEntry, Absence). Sie entstehen zu Tausenden, tragen eigene Zeitstempel
+# und würden das Änderungsprotokoll so voll schreiben, dass die Einträge
+# oben darin nicht mehr zu finden wären.
+#
+# Wer das ändern will, braucht vorher eine Aufbewahrungsfrist für AuditEvent -
+# heute wächst die Tabelle unbegrenzt.
 
 IGNORED_FIELDS = {"id", "created_at", "updated_at"}
 
@@ -100,6 +134,26 @@ def _label(instance) -> str:
 
 def _key(instance) -> str:
     return f"{instance._meta.app_label}.{instance._meta.object_name}"
+
+
+def _is_historical(instance) -> bool:
+    """
+    Laeuft dieser Speichervorgang gerade in einer Migration?
+
+    Migrationen arbeiten nicht mit den echten Modellklassen, sondern mit
+    nachgebauten aus apps.get_model(). Django legt die im Modul "__fake__" an -
+    daran, und nur daran, sind sie zu erkennen.
+
+    Warum das zaehlt: eine Datenmigration, die beobachtete Datensaetze anlegt,
+    loest sonst das Signal aus, waehrend die Tabelle AuditEvent je nach
+    Reihenfolge der Migrationen noch gar nicht existiert. Genau daran sind die
+    Seed-Migrationen der Protokollvorlagen gescheitert, nachdem
+    ProtocolTemplate in WATCHED aufgenommen wurde.
+
+    Ein Eintrag waere dort ohnehin sinnlos: eine Migration hat keinen Benutzer,
+    den man spaeter fragen koennte.
+    """
+    return type(instance).__module__ == "__fake__"
 
 
 def _values(instance) -> dict:
@@ -120,6 +174,8 @@ def remember_previous(sender, instance, **kwargs):
     """Alten Stand merken, damit post_save die Differenz bilden kann."""
     if _key(instance) not in WATCHED or instance.pk is None:
         return
+    if _is_historical(instance):
+        return
     try:
         instance._audit_previous = _values(sender.objects.get(pk=instance.pk))
     except sender.DoesNotExist:
@@ -129,7 +185,7 @@ def remember_previous(sender, instance, **kwargs):
 @receiver(post_save)
 def record_save(sender, instance, created, **kwargs):
     key = _key(instance)
-    if key not in WATCHED:
+    if key not in WATCHED or _is_historical(instance):
         return
 
     user = get_current_user()
@@ -158,24 +214,30 @@ def record_save(sender, instance, created, **kwargs):
 @receiver(post_delete)
 def record_delete(sender, instance, **kwargs):
     key = _key(instance)
-    if key not in WATCHED:
+    if key not in WATCHED or _is_historical(instance):
         return
     user = get_current_user()
     _write(key, instance, "delete", None, user.get_username() if user else "")
 
 
 def _write(key, instance, action, changes, username):
+    # Das Protokoll darf einen Speichervorgang niemals scheitern lassen.
+    #
+    # Das try/except allein reicht dafuer nicht: schlaegt das INSERT fehl,
+    # ist die umgebende Transaktion kaputt, und jede weitere Abfrage darin
+    # bricht mit TransactionManagementError ab - der eigentliche Vorgang also
+    # doch. Der Speicherpunkt begrenzt den Schaden auf diesen einen Eintrag.
     try:
-        AuditEvent.objects.create(
-            model=key,
-            object_id=str(instance.pk),
-            label=_label(instance),
-            action=action,
-            changes=changes,
-            username=username,
-        )
+        with transaction.atomic():
+            AuditEvent.objects.create(
+                model=key,
+                object_id=str(instance.pk),
+                label=_label(instance),
+                action=action,
+                changes=changes,
+                username=username,
+            )
     except Exception:  # noqa: BLE001
-        # Das Protokoll darf einen Speichervorgang niemals scheitern lassen.
         logger.exception("Änderungsprotokoll konnte nicht geschrieben werden")
 
 
