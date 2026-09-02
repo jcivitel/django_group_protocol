@@ -14,7 +14,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from django_grp_backend.access import WriteNeedsRole
+from django_grp_backend.access import WriteNeedsRole, is_admin
 from .audit import AuditEvent
 from .tenancy import limit_to_tenant, tenant_providers
 from .models import (
@@ -39,8 +39,8 @@ class StaffWritableViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def _require_staff(self):
-        if not self.request.user.is_staff:
-            raise PermissionDenied("Nur Mitarbeitende dürfen Stammdaten ändern.")
+        if not is_admin(self.request.user):
+            raise PermissionDenied("Nur die Verwaltung darf Stammdaten ändern.")
 
     def perform_create(self, serializer):
         self._require_staff()
@@ -221,6 +221,18 @@ class EmployeeSerializer(serializers.ModelSerializer):
     account_active = serializers.SerializerMethodField()
     group_ids = serializers.SerializerMethodField()
 
+    # Nur schreibend: das Passwort verlaesst den Server nie wieder.
+    password = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, min_length=8
+    )
+    set_username = serializers.CharField(
+        write_only=True, required=False, allow_blank=True
+    )
+    set_account_active = serializers.BooleanField(write_only=True, required=False)
+    set_group_ids = serializers.ListField(
+        child=serializers.IntegerField(), write_only=True, required=False
+    )
+
     SENSITIVE_FIELDS = ("birth_date", "personnel_number", "phone", "notes", "email")
 
     class Meta:
@@ -249,6 +261,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "username",
             "account_active",
             "group_ids",
+            "password",
+            "set_username",
+            "set_account_active",
+            "set_group_ids",
         ]
 
     def get_full_name(self, obj):
@@ -272,6 +288,79 @@ class EmployeeSerializer(serializers.ModelSerializer):
         if not obj.user_id:
             return []
         return list(obj.user.group_set.values_list("id", flat=True))
+
+    # ------------------------------------------------------------ Zugang
+    #
+    # Person und Konto sind ein Datensatz. Deshalb legt derselbe Aufruf,
+    # der die Person anlegt, auch ihren Zugang an - vorher musste man
+    # beides getrennt tun und von Hand zusammenhalten.
+
+    def _apply_account(self, employee, data):
+        from django.contrib.auth.models import User
+
+        from django_grp_backend.models import Group
+
+        username = (data.pop("set_username", None) or "").strip()
+        password = data.pop("password", None)
+        active = data.pop("set_account_active", None)
+        group_ids = data.pop("set_group_ids", None)
+
+        user = employee.user
+
+        if username and user is None:
+            user, _ = User.objects.get_or_create(
+                username=username,
+                defaults={
+                    "first_name": employee.first_name,
+                    "last_name": employee.last_name,
+                    "email": employee.email,
+                },
+            )
+            employee.user = user
+            employee.save(update_fields=["user"])
+        elif username and user.username != username:
+            user.username = username
+            user.save(update_fields=["username"])
+
+        if user is None:
+            return
+
+        changed = []
+        if password:
+            user.set_password(password)
+            changed.append("password")
+        if active is not None:
+            user.is_active = active
+            changed.append("is_active")
+        if changed:
+            user.save(update_fields=changed)
+
+        if group_ids is not None:
+            user.group_set.set(Group.objects.filter(id__in=group_ids))
+
+    def create(self, validated_data):
+        account = {
+            key: validated_data.pop(key)
+            for key in ("password", "set_username", "set_account_active", "set_group_ids")
+            if key in validated_data
+        }
+        employee = super().create(validated_data)
+        self._apply_account(employee, account)
+        # Das Signal an Employee zieht is_staff nach; nach dem Anlegen des
+        # Kontos muss es deshalb noch einmal laufen.
+        employee.save(update_fields=["access_level"])
+        return employee
+
+    def update(self, instance, validated_data):
+        account = {
+            key: validated_data.pop(key)
+            for key in ("password", "set_username", "set_account_active", "set_group_ids")
+            if key in validated_data
+        }
+        employee = super().update(instance, validated_data)
+        self._apply_account(employee, account)
+        employee.save(update_fields=["access_level"])
+        return employee
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
