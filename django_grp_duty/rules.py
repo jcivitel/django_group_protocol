@@ -231,9 +231,101 @@ def _check_consecutive_days(shifts) -> list[Violation]:
     return out
 
 
+def _minutes(value) -> int:
+    """Uhrzeit als Minuten seit Mitternacht."""
+    return value.hour * 60 + value.minute
+
+
+def _overlaps(a_start, a_end, b_start, b_end) -> bool:
+    """
+    Ueberschneiden sich zwei Zeitspannen?
+
+    Dienste ueber Mitternacht sind der Grund fuer die Aufteilung: eine
+    Nachtbereitschaft von 21:00 bis 07:00 endet rechnerisch vor ihrem Beginn.
+    Solche Spannen werden in zwei zerlegt - bis Mitternacht und ab
+    Mitternacht - und jede fuer sich verglichen.
+    """
+
+    def teile(start, ende):
+        s, e = _minutes(start), _minutes(ende)
+        return [(s, e)] if e > s else [(s, 24 * 60), (0, e)]
+
+    for a1, a2 in teile(a_start, a_end):
+        for b1, b2 in teile(b_start, b_end):
+            if a1 < b2 and b1 < a2:
+                return True
+    return False
+
+
+def _covers(requirement, shift) -> bool:
+    """Faellt dieser Dienst unter diese Besetzungsvorgabe?"""
+    if requirement.shift_type_id is not None:
+        return shift.shift_type_id == requirement.shift_type_id
+    if not (requirement.starts_at and requirement.ends_at):
+        return False
+    return _overlaps(
+        requirement.starts_at,
+        requirement.ends_at,
+        shift.shift_type.start_time,
+        shift.shift_type.end_time,
+    )
+
+
+def _check_requirements(requirements, day, staffed) -> list[Violation]:
+    """Die feingliedrigen Vorgaben eines Bereichs gegen einen Tag halten."""
+    out = []
+    for requirement in requirements:
+        passend = [shift for shift in staffed if _covers(requirement, shift)]
+
+        if len(passend) < requirement.minimum_staff:
+            out.append(
+                Violation(
+                    rule="minimum_staff",
+                    severity="error",
+                    date=str(day),
+                    message=(
+                        f"{requirement.scope_label}: nur {len(passend)} von "
+                        f"mindestens {requirement.minimum_staff} Personen im "
+                        f"Dienst."
+                    ),
+                )
+            )
+
+        if requirement.minimum_specialists:
+            fachkraefte = [
+                shift
+                for shift in passend
+                if shift.shift_type.counts_specialist and shift.employee.is_specialist
+            ]
+            if len(fachkraefte) < requirement.minimum_specialists:
+                out.append(
+                    Violation(
+                        rule="minimum_specialists",
+                        severity="error",
+                        date=str(day),
+                        message=(
+                            f"{requirement.scope_label}: nur "
+                            f"{len(fachkraefte)} von mindestens "
+                            f"{requirement.minimum_specialists} Fachkräften "
+                            f"im Dienst."
+                        ),
+                    )
+                )
+    return out
+
+
 def _check_staffing(plan, shifts) -> list[Violation]:
-    """Mindestbesetzung und Fachkraftquote je Tag prüfen."""
+    """
+    Besetzung und Fachkraftquote je Tag prüfen.
+
+    Hat der Bereich Besetzungsvorgaben (je Dienstart oder Uhrzeit-Fenster),
+    zählen die. Sonst bleibt es bei der einen Tageszahl am Bereich - so
+    ändert ein bestehender Plan sein Verhalten nicht, bloß weil es das
+    feinere Modell jetzt gibt.
+    """
     department = plan.department
+    requirements = list(department.staffing_requirements.select_related("shift_type"))
+
     per_day = defaultdict(list)
     for shift in shifts:
         per_day[shift.date].append(shift)
@@ -242,7 +334,9 @@ def _check_staffing(plan, shifts) -> list[Violation]:
     for day, entries in sorted(per_day.items()):
         staffed = [shift for shift in entries if shift.employee_id]
 
-        if len(staffed) < department.minimum_staff:
+        if requirements:
+            out.extend(_check_requirements(requirements, day, staffed))
+        elif len(staffed) < department.minimum_staff:
             out.append(
                 Violation(
                     rule="minimum_staff",
@@ -255,8 +349,11 @@ def _check_staffing(plan, shifts) -> list[Violation]:
                 )
             )
 
+        # Die Prozentquote gilt nur, solange es keine feingliedrigen Vorgaben
+        # gibt. Sonst meldet dieselbe Unterbesetzung zweimal - einmal als
+        # fehlende Fachkraft, einmal als zu geringer Anteil.
         counting = [shift for shift in staffed if shift.shift_type.counts_specialist]
-        if counting and department.specialist_ratio:
+        if not requirements and counting and department.specialist_ratio:
             specialists = [shift for shift in counting if shift.employee.is_specialist]
             share = round(len(specialists) * 100 / len(counting))
             if share < department.specialist_ratio:

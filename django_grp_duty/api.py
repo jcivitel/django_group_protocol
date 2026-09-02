@@ -22,6 +22,7 @@ from django_grp_org.tenancy import limit_to_tenant
 
 from django_grp_backend.access import WriteNeedsRole
 from .models import (
+    StaffingRequirement,
     Absence,
     AbsenceType,
     DutyPlan,
@@ -147,6 +148,91 @@ class ShiftTypeViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return limit_to_tenant(ShiftType.objects.all(), self.request.user)
+
+    def perform_create(self, serializer):
+        require_staff(self.request)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        require_staff(self.request)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        require_staff(self.request)
+        instance.delete()
+
+
+class StaffingRequirementSerializer(serializers.ModelSerializer):
+    shift_type_name = serializers.CharField(source="shift_type.name", read_only=True)
+    scope_label = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = StaffingRequirement
+        fields = [
+            "id",
+            "department",
+            "shift_type",
+            "shift_type_name",
+            "starts_at",
+            "ends_at",
+            "minimum_staff",
+            "minimum_specialists",
+            "note",
+            "scope_label",
+        ]
+
+    def validate(self, attrs):
+        """
+        Genau eine Art von Geltungsbereich - Dienstart oder Uhrzeit-Fenster.
+
+        Die Regel steht im Modell (clean); hier wird sie ausgeloest, damit die
+        Schnittstelle eine verstaendliche Meldung liefert statt eines
+        Datenbankfehlers. Bei einer Teiländerung (PATCH) kommen nur die
+        geänderten Felder an, deshalb werden sie über den vorhandenen Stand
+        gelegt.
+        """
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        felder = {
+            "department": None,
+            "shift_type": None,
+            "starts_at": None,
+            "ends_at": None,
+            "minimum_staff": 0,
+            "minimum_specialists": 0,
+        }
+        stand = {
+            name: getattr(self.instance, name, vorgabe) if self.instance else vorgabe
+            for name, vorgabe in felder.items()
+        }
+        entwurf = StaffingRequirement(
+            **{
+                **stand,
+                **{name: wert for name, wert in attrs.items() if name in felder},
+            }
+        )
+
+        try:
+            entwurf.clean()
+        except DjangoValidationError as fehler:
+            raise ValidationError(fehler.messages)
+        return attrs
+
+
+class StaffingRequirementViewSet(viewsets.ModelViewSet):
+    """Besetzungsvorgaben je Bereich - nach Dienstart oder Uhrzeit-Fenster."""
+
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
+    serializer_class = StaffingRequirementSerializer
+
+    def get_queryset(self):
+        queryset = StaffingRequirement.objects.select_related(
+            "department", "shift_type"
+        )
+        bereich = self.request.query_params.get("bereich")
+        if bereich:
+            queryset = queryset.filter(department_id=bereich)
+        return queryset
 
     def perform_create(self, serializer):
         require_staff(self.request)
