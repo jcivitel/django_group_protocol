@@ -36,6 +36,16 @@ class SetupStatusView(APIView):
         try:
             # Check if superuser exists
             superuser_exists = User.objects.filter(is_superuser=True).exists()
+            any_user_exists = User.objects.exists()
+
+            # Gibt es schon eine Organisation? Ohne Traeger laesst sich
+            # weder Personal noch Dienstplan anlegen - dann fuehrt der
+            # Assistent durch die Einrichtung.
+            from django_grp_org.models import Provider
+            from django_grp_backend.models import Group
+
+            organisation_exists = Provider.objects.exists()
+            group_exists = Group.objects.exists()
             
             # Check for pending migrations
             executor = MigrationExecutor(connection)
@@ -52,13 +62,18 @@ class SetupStatusView(APIView):
                 status_value = "not_initialized"
             elif has_pending:
                 status_value = "needs_migration"
+            elif not organisation_exists:
+                status_value = "needs_organisation"
             else:
                 status_value = "ready"
-            
+
             return Response(
                 {
                     "is_initialized": superuser_exists and not has_pending,
                     "superuser_exists": superuser_exists,
+                    "any_user_exists": any_user_exists,
+                    "organisation_exists": organisation_exists,
+                    "group_exists": group_exists,
                     "migrations_pending": has_pending,
                     "pending_migrations": pending_migration_names,
                     "status": status_value,

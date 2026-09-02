@@ -9,6 +9,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils.deconstruct import deconstructible
 
+from django_grp_backend.access import is_admin
 from django_grp_backend.functions import validate_image
 
 # Hinweis zu db_constraint=False bei den Modellen ab ProtocolTemplate:
@@ -28,8 +29,8 @@ class GroupQuerySet(models.QuerySet):
     """Custom QuerySet for Group model."""
 
     def for_user(self, user):
-        """Return groups accessible to the user."""
-        if user.is_staff:
+        """Gruppen, die das Konto sehen darf."""
+        if is_admin(user):
             return self
         return self.filter(group_members=user)
 
@@ -38,8 +39,8 @@ class ResidentQuerySet(models.QuerySet):
     """Custom QuerySet for Resident model."""
 
     def for_user(self, user):
-        """Return residents accessible to the user."""
-        if user.is_staff:
+        """Bewohner der Gruppen, die das Konto sehen darf."""
+        if is_admin(user):
             return self
         return self.filter(group__group_members=user)
 
@@ -52,8 +53,8 @@ class ProtocolQuerySet(models.QuerySet):
     """Custom QuerySet for Protocol model."""
 
     def for_user(self, user):
-        """Return protocols accessible to the user."""
-        if user.is_staff:
+        """Protokolle der Gruppen, die das Konto sehen darf."""
+        if is_admin(user):
             return self
         return self.filter(group__group_members=user)
 

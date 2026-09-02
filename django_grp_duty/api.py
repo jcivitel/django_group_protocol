@@ -20,6 +20,7 @@ from rest_framework.views import APIView
 from django_grp_org.models import Employee
 from django_grp_org.tenancy import limit_to_tenant
 
+from django_grp_backend.access import WriteNeedsRole
 from .models import (
     Absence,
     AbsenceType,
@@ -141,7 +142,7 @@ class DutyPlanSerializer(serializers.ModelSerializer):
 
 
 class ShiftTypeViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ShiftTypeSerializer
 
     def get_queryset(self):
@@ -161,7 +162,7 @@ class ShiftTypeViewSet(viewsets.ModelViewSet):
 
 
 class DutyPlanViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = DutyPlanSerializer
 
     def get_queryset(self):
@@ -201,7 +202,7 @@ class DutyPlanViewSet(viewsets.ModelViewSet):
 class ShiftViewSet(viewsets.ModelViewSet):
     """Dienste eines Plans, verschachtelt unter /duty-plan/{id}/shift/."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ShiftSerializer
 
     def get_plan(self):
@@ -238,7 +239,7 @@ class ShiftViewSet(viewsets.ModelViewSet):
 class DutyPlanRulesView(APIView):
     """Regelprüfung eines Dienstplans."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request, plan_id: int):
         plan = DutyPlan.objects.filter(id=plan_id).select_related("department").first()
@@ -259,7 +260,7 @@ class DutyPlanRulesView(APIView):
 class DutyPlanGenerateView(APIView):
     """Legt die Dienste eines Monats an, zunächst alle unbesetzt."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def post(self, request, plan_id: int):
         require_staff(request, "Nur Mitarbeitende dürfen Dienste anlegen.")
@@ -284,7 +285,7 @@ class DutyPlanGenerateView(APIView):
 class SubstituteSearchView(APIView):
     """Wer könnte diesen Dienst übernehmen?"""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request, shift_id: int):
         shift = (
@@ -359,7 +360,7 @@ class AbsenceSerializer(serializers.ModelSerializer):
 
 
 class AbsenceTypeViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = AbsenceTypeSerializer
 
     def get_queryset(self):
@@ -387,7 +388,7 @@ class AbsenceViewSet(viewsets.ModelViewSet):
     Person den Urlaub selbst genehmigen.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = AbsenceSerializer
 
     def get_queryset(self):
@@ -451,7 +452,7 @@ class AbsenceViewSet(viewsets.ModelViewSet):
 class VacationBalanceView(APIView):
     """Urlaubskonto einer Person für ein Jahr."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request, employee_id: int):
         employee = Employee.objects.filter(id=employee_id).first()
@@ -536,7 +537,7 @@ class TimeAccountSerializer(serializers.ModelSerializer):
 
 
 class TimeEntryViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = TimeEntrySerializer
 
     def get_queryset(self):
@@ -586,7 +587,7 @@ class TimeEntryViewSet(viewsets.ModelViewSet):
 class TimeEntryApprovalView(APIView):
     """Zeitbuchungen freigeben - nur durch Personal."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def post(self, request):
         require_staff(request, "Nur Mitarbeitende dürfen Zeiten freigeben.")
@@ -597,7 +598,7 @@ class TimeEntryApprovalView(APIView):
 
 
 class TimeAccountViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = TimeAccountSerializer
 
     def get_queryset(self):
@@ -617,7 +618,7 @@ class TimeAccountViewSet(viewsets.ReadOnlyModelViewSet):
 class CloseMonthView(APIView):
     """Monatsabschluss: Zeitkonten neu berechnen."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def post(self, request):
         require_staff(request, "Nur Mitarbeitende dürfen Monate abschließen.")
@@ -650,7 +651,7 @@ class MyDutyView(APIView):
     zusammen zeigt.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request):
         employee = current_employee(request.user)
@@ -765,7 +766,7 @@ class ShiftSwapSerializer(serializers.ModelSerializer):
 class ShiftPreferenceViewSet(viewsets.ModelViewSet):
     """Dienstwünsche. Jede Person pflegt die eigenen, Personal sieht alle."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ShiftPreferenceSerializer
 
     def get_queryset(self):
@@ -813,7 +814,7 @@ class ShiftSwapViewSet(viewsets.ModelViewSet):
     Leitung - erst dann wechselt der Dienst.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ShiftSwapSerializer
 
     def get_queryset(self):
@@ -879,7 +880,7 @@ class PayrollExportView(APIView):
     vollständig hält.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request):
         require_staff(request, "Nur Mitarbeitende dürfen die Abrechnung abrufen.")

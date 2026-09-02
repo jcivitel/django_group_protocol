@@ -1,4 +1,5 @@
 from django.urls import path
+from .organisation_setup import OrganisationSetupView
 from .views import SetupStatusView, SetupWizardView, SetupRedirectView, InfoView
 
 app_name = 'django_grp_core'
@@ -8,5 +9,10 @@ urlpatterns = [
     path("", SetupRedirectView.as_view(), name="setup-redirect"),
     path("setup/status/", SetupStatusView.as_view(), name="setup-status"),
     path("setup/init/", SetupWizardView.as_view(), name="setup-init"),
+    path(
+        "setup/organisation/",
+        OrganisationSetupView.as_view(),
+        name="setup-organisation",
+    ),
     path("info/", InfoView.as_view(), name="info"),
 ]

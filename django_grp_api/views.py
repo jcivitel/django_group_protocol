@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
+from django_grp_backend.access import WriteNeedsRole, is_admin, may_read_only
 from django_grp_backend.functions import upload_too_large
 from django_grp_backend.models import (
     Protocol,
@@ -127,7 +128,7 @@ class LogoutView(APIView):
     }
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def post(self, request):
         # Delete the user's authentication token
@@ -143,7 +144,7 @@ class LogoutView(APIView):
 
 
 class ProtocolViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get_serializer_class(self):
         """Use different serializers for list vs detail."""
@@ -170,7 +171,7 @@ class ProtocolViewSet(viewsets.ModelViewSet):
 
 
 class GroupViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = GroupSerializer
 
     def get_queryset(self):
@@ -196,7 +197,7 @@ class GroupViewSet(viewsets.ModelViewSet):
 
 
 class ResidentViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ResidentSerializer
 
     def get_queryset(self):
@@ -215,7 +216,7 @@ class ResidentContactViewSet(viewsets.ModelViewSet):
     neue Handynummer der Mutter erfaehrt die Gruppe, nicht die Verwaltung.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ResidentContactSerializer
 
     def get_resident(self):
@@ -250,7 +251,7 @@ class ProtocolScopedViewSet(viewsets.ModelViewSet):
     pruefen und Schreibzugriff auf exportierte Protokolle unterbinden.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     model = None
 
     def get_protocol(self):
@@ -263,7 +264,7 @@ class ProtocolScopedViewSet(viewsets.ModelViewSet):
 
         user = self.request.user
         is_member = protocol.group.group_members.filter(id=user.id).exists()
-        if not is_member and not user.is_staff:
+        if not is_member and not is_admin(user):
             return None
         return protocol
 
@@ -341,13 +342,13 @@ class ProtocolTemplateViewSet(viewsets.ModelViewSet):
     Gruppen. Anlegen und Aendern bleibt dem Personal vorbehalten.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ProtocolTemplateSerializer
 
     def get_queryset(self):
         user = self.request.user
         queryset = ProtocolTemplate.objects.prefetch_related("items")
-        if user.is_staff:
+        if is_admin(user):
             return queryset
         return queryset.filter(
             Q(group__isnull=True) | Q(group__group_members=user)
@@ -356,7 +357,7 @@ class ProtocolTemplateViewSet(viewsets.ModelViewSet):
     def _require_staff(self):
         # PermissionDenied statt ValidationError: fehlende Rechte sind 403,
         # nicht 400.
-        if not self.request.user.is_staff:
+        if not is_admin(self.request.user):
             raise PermissionDenied(
                 "Nur Mitarbeitende duerfen Vorlagen anlegen oder aendern."
             )
@@ -375,7 +376,7 @@ class ProtocolTemplateViewSet(viewsets.ModelViewSet):
 
 
 class ProtocolPresenceUpdateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def post(self, request):
         protocol_id = request.data.get("protocol")
@@ -393,7 +394,7 @@ class ProtocolPresenceUpdateView(APIView):
 
             # Check access: user must be staff or member of protocol's group
             is_member = protocol.group.group_members.filter(id=request.user.id).exists()
-            if not is_member and not request.user.is_staff:
+            if not is_member and not is_admin(request.user):
                 return Response(
                     {"error": "You do not have permission to access this protocol"},
                     status=status.HTTP_403_FORBIDDEN,
@@ -420,7 +421,7 @@ class ProtocolPresenceUpdateView(APIView):
 
 
 class ItemValuesUpdateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def post(self, request):
         serializer = ItemSerializer(data=request.data)
@@ -446,7 +447,7 @@ class ItemValuesUpdateView(APIView):
                 is_member = protocol.group.group_members.filter(
                     id=request.user.id
                 ).exists()
-                if not is_member and not request.user.is_staff:
+                if not is_member and not is_admin(request.user):
                     return Response(
                         {"error": "You do not have permission to access this protocol"},
                         status=status.HTTP_403_FORBIDDEN,
@@ -504,7 +505,7 @@ class ItemValuesUpdateView(APIView):
             is_member = item.protocol.group.group_members.filter(
                 id=request.user.id
             ).exists()
-            if not is_member and not request.user.is_staff:
+            if not is_member and not is_admin(request.user):
                 return Response(
                     {"error": "You do not have permission to access this protocol"},
                     status=status.HTTP_403_FORBIDDEN,
@@ -524,7 +525,7 @@ class ItemValuesUpdateView(APIView):
 class MentionAutocompleteView(APIView):
     """Get list of residents for @mention autocomplete."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request):
         protocol_id = request.query_params.get("protocol_id")
@@ -538,7 +539,7 @@ class MentionAutocompleteView(APIView):
 
             # Check access: user must be staff or member of protocol's group
             is_member = protocol.group.group_members.filter(id=request.user.id).exists()
-            if not is_member and not request.user.is_staff:
+            if not is_member and not is_admin(request.user):
                 return Response(
                     {"error": "You do not have permission to access this protocol"},
                     status=status.HTTP_403_FORBIDDEN,
@@ -567,7 +568,7 @@ class MentionAutocompleteView(APIView):
 class RotateImageView(APIView):
     """Rotate resident images (left/right)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def post(self, request):
         try:
@@ -635,7 +636,7 @@ class UserProfileView(APIView):
     }
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request):
         serializer = UserProfileSerializer(request.user, context={"request": request})
@@ -688,7 +689,7 @@ class UserMeView(APIView):
     }
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request):
         """Get detailed user profile with group permissions and resident counts."""
@@ -707,7 +708,7 @@ class ResidentPictureView(APIView):
     Returns: Image file or 404 if not found/no picture
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request, resident_id: int):
         try:
@@ -754,7 +755,7 @@ class ResidentPictureUploadView(APIView):
     - User must be staff OR member of resident's group.group_members
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def post(self, request, resident_id: int):
         try:
@@ -768,7 +769,7 @@ class ResidentPictureUploadView(APIView):
 
             # Check access: user must be staff or member of resident's group
             is_member = resident.group.group_members.filter(id=request.user.id).exists()
-            if not is_member and not request.user.is_staff:
+            if not is_member and not is_admin(request.user):
                 return Response(
                     {
                         "error": "You do not have permission to update this resident's picture"
@@ -843,7 +844,7 @@ class GroupPDFTemplateView(APIView):
     - User must be staff OR member of group.group_members
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def post(self, request, group_id: int):
         try:
@@ -857,7 +858,7 @@ class GroupPDFTemplateView(APIView):
 
             # Check access: user must be staff or member of group
             is_member = group.group_members.filter(id=request.user.id).exists()
-            if not is_member and not request.user.is_staff:
+            if not is_member and not is_admin(request.user):
                 return Response(
                     {
                         "error": "You do not have permission to update this group's PDF template"
@@ -928,7 +929,7 @@ class ProtocolExportedFileView(APIView):
     - User must be staff OR member of protocol's group.group_members
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request, protocol_id: int):
         """Get exported file for a protocol."""
@@ -941,7 +942,7 @@ class ProtocolExportedFileView(APIView):
 
         # Check access: user must be staff or member of protocol's group
         is_member = protocol.group.group_members.filter(id=request.user.id).exists()
-        if not is_member and not request.user.is_staff:
+        if not is_member and not is_admin(request.user):
             return Response(
                 {
                     "error": "You do not have permission to view this protocol's exported file"
@@ -977,7 +978,7 @@ class ProtocolExportedFileView(APIView):
 
         # Check access: user must be staff or member of protocol's group
         is_member = protocol.group.group_members.filter(id=request.user.id).exists()
-        if not is_member and not request.user.is_staff:
+        if not is_member and not is_admin(request.user):
             return Response(
                 {
                     "error": "You do not have permission to upload files for this protocol"
@@ -1039,7 +1040,7 @@ class ProtocolPresenceListView(APIView):
     - User must be staff OR member of protocol's group.group_members
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request, protocol_id: int):
         try:
@@ -1053,7 +1054,7 @@ class ProtocolPresenceListView(APIView):
 
             # Check access: user must be staff or member of protocol's group
             is_member = protocol.group.group_members.filter(id=request.user.id).exists()
-            if not is_member and not request.user.is_staff:
+            if not is_member and not is_admin(request.user):
                 return Response(
                     {
                         "error": "You do not have permission to view this protocol's presence entries"
@@ -1100,11 +1101,11 @@ class AdminUserListView(APIView):
     - Staff only (is_staff == true)
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request):
         """List all users (staff only)."""
-        if not request.user.is_staff:
+        if not is_admin(request.user):
             return Response(
                 {"error": "Sie haben keine Berechtigung, um diese Seite zu sehen."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -1123,7 +1124,7 @@ class AdminUserListView(APIView):
 
     def post(self, request):
         """Create a new user (staff only)."""
-        if not request.user.is_staff:
+        if not is_admin(request.user):
             return Response(
                 {
                     "error": "Sie haben keine Berechtigung, um diese Aktion durchzuführen."
@@ -1181,7 +1182,7 @@ class AdminUserDetailView(APIView):
     - Staff only (is_staff == true)
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def _get_user_or_404(self, user_id: int):
         """Helper to get user or return 404."""
@@ -1192,7 +1193,7 @@ class AdminUserDetailView(APIView):
 
     def get(self, request, user_id: int):
         """Get user details (staff only)."""
-        if not request.user.is_staff:
+        if not is_admin(request.user):
             return Response(
                 {"error": "Sie haben keine Berechtigung."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -1209,7 +1210,7 @@ class AdminUserDetailView(APIView):
 
     def put(self, request, user_id: int):
         """Update user details (staff only)."""
-        if not request.user.is_staff:
+        if not is_admin(request.user):
             return Response(
                 {"error": "Sie haben keine Berechtigung."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -1245,7 +1246,7 @@ class AdminUserDetailView(APIView):
 
     def delete(self, request, user_id: int):
         """Delete user (staff only)."""
-        if not request.user.is_staff:
+        if not is_admin(request.user):
             return Response(
                 {"error": "Sie haben keine Berechtigung."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -1283,11 +1284,11 @@ class AdminUserGroupView(APIView):
     - Staff only (is_staff == true)
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def post(self, request, user_id: int):
         """Add user to group (staff only)."""
-        if not request.user.is_staff:
+        if not is_admin(request.user):
             return Response(
                 {"error": "Sie haben keine Berechtigung."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -1325,7 +1326,7 @@ class AdminUserGroupView(APIView):
 
     def delete(self, request, user_id: int, group_id: int):
         """Remove user from group (staff only)."""
-        if not request.user.is_staff:
+        if not is_admin(request.user):
             return Response(
                 {"error": "Sie haben keine Berechtigung."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -1379,11 +1380,11 @@ class AdminUserPermissionView(APIView):
     - Staff only (is_staff == true)
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request, user_id: int):
         """List user permissions (staff only)."""
-        if not request.user.is_staff:
+        if not is_admin(request.user):
             return Response(
                 {"error": "Sie haben keine Berechtigung."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -1407,7 +1408,7 @@ class AdminUserPermissionView(APIView):
 
     def post(self, request, user_id: int):
         """Add permission to user (staff only)."""
-        if not request.user.is_staff:
+        if not is_admin(request.user):
             return Response(
                 {"error": "Sie haben keine Berechtigung."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -1470,7 +1471,7 @@ class AdminUserPermissionView(APIView):
 
     def delete(self, request, user_id: int, permission_id: int):
         """Remove permission from user (staff only)."""
-        if not request.user.is_staff:
+        if not is_admin(request.user):
             return Response(
                 {"error": "Sie haben keine Berechtigung."},
                 status=status.HTTP_403_FORBIDDEN,

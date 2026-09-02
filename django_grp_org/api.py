@@ -14,6 +14,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django_grp_backend.access import WriteNeedsRole
 from .audit import AuditEvent
 from .tenancy import limit_to_tenant, tenant_providers
 from .models import (
@@ -35,7 +36,7 @@ from .models import (
 class StaffWritableViewSet(viewsets.ModelViewSet):
     """Lesen für alle Angemeldeten, Ändern nur für Personal."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def _require_staff(self):
         if not self.request.user.is_staff:
@@ -212,6 +213,14 @@ class EmployeeSerializer(serializers.ModelSerializer):
     qualification_names = serializers.SerializerMethodField()
     work_time_model_name = serializers.SerializerMethodField()
 
+    # Der Zugang gehört zur Person, nicht in eine zweite Liste.
+    access_level_display = serializers.CharField(
+        source="get_access_level_display", read_only=True
+    )
+    username = serializers.SerializerMethodField()
+    account_active = serializers.SerializerMethodField()
+    group_ids = serializers.SerializerMethodField()
+
     SENSITIVE_FIELDS = ("birth_date", "personnel_number", "phone", "notes", "email")
 
     class Meta:
@@ -235,6 +244,11 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "is_specialist",
             "is_active",
             "notes",
+            "access_level",
+            "access_level_display",
+            "username",
+            "account_active",
+            "group_ids",
         ]
 
     def get_full_name(self, obj):
@@ -245,6 +259,19 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
     def get_work_time_model_name(self, obj):
         return obj.work_time_model.name if obj.work_time_model_id else None
+
+    def get_username(self, obj):
+        return obj.user.username if obj.user_id else None
+
+    def get_account_active(self, obj):
+        """None heisst: diese Person hat (noch) keinen Zugang."""
+        return obj.user.is_active if obj.user_id else None
+
+    def get_group_ids(self, obj):
+        """In welchen Wohngruppen die Person mitarbeitet."""
+        if not obj.user_id:
+            return []
+        return list(obj.user.group_set.values_list("id", flat=True))
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -452,7 +479,7 @@ class StaffingPlanView(APIView):
     Stellen" verlangt, ohne dass die Oberfläche selbst rechnen muss.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request):
         departments = limit_to_tenant(
@@ -525,7 +552,7 @@ class AuditEventViewSet(viewsets.ReadOnlyModelViewSet):
     ist keins.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = AuditEventSerializer
 
     def get_queryset(self):

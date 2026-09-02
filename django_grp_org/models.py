@@ -16,6 +16,8 @@ from decimal import Decimal
 
 from django.contrib.auth.models import User
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 
 def fk(to, **kwargs):
@@ -147,6 +149,10 @@ class Role(models.Model):
 
     Die Rolle gilt jeweils auf der Ebene, die gesetzt ist: nur Traeger =
     traegerweit, mit Einrichtung = dort, mit Bereich = nur in diesem Bereich.
+
+    Das ist die organisatorische Funktion - Grundlage fuer Stellenplan und
+    Fachkraftquote. Was jemand in der Software darf, steht dagegen in
+    Employee.access_level.
     """
 
     ROLE_CHOICES = [
@@ -242,14 +248,40 @@ class WorkTimeModel(models.Model):
 
 class Employee(models.Model):
     """
-    Mitarbeitende.
+    Eine Person - Personaldatensatz und Zugang in einem.
 
-    Getrennt vom Django-User, weil nicht jede Person einen Systemzugang
-    braucht (Aushilfen, Praktikanten) und Personaldaten laenger leben als
-    Konten.
+    Frueher waren das zwei Dinge: Personalakte hier, Benutzerkonto dort.
+    Das hiess, jede Person zweimal anzulegen und die beiden Listen von Hand
+    zusammenzuhalten. Jetzt ist der Personaldatensatz die Person, `user`
+    ihr Zugang und `role` das, was sie darf.
+
+    Der Zugang bleibt optional (`user` darf leer sein): eine Person kann
+    ausscheiden und ihr Konto verlieren, waehrend die Personaldaten aus
+    Aufbewahrungsgruenden bleiben.
     """
 
+    # Was die Person in der Software darf. Nicht zu verwechseln mit dem
+    # Modell Role weiter oben: das ist die organisatorische Funktion mit
+    # Geltungsbereich und Zeitraum, Grundlage des Stellenplans. Hier geht
+    # es allein um Zugriff, und davon hat eine Person genau einen.
+    ACCESS_CHOICES = [
+        ("admin", "Mitarbeiter"),
+        ("specialist", "Fachkraft"),
+        ("assistant", "Aushilfe / Azubi"),
+    ]
+
     provider = fk(Provider, related_name="employees", verbose_name="Träger")
+    access_level = models.CharField(
+        max_length=20,
+        choices=ACCESS_CHOICES,
+        default="specialist",
+        verbose_name="Zugriff",
+        help_text=(
+            "Mitarbeiter: verwaltet Stammdaten, Personal und Dienstplan. "
+            "Fachkraft: schreibt in den eigenen Gruppen. "
+            "Aushilfe / Azubi: liest in den eigenen Gruppen."
+        ),
+    )
     user = models.OneToOneField(
         User,
         on_delete=models.SET_NULL,
@@ -301,6 +333,16 @@ class Employee(models.Model):
     @property
     def is_active(self) -> bool:
         return self.left_on is None
+
+    @property
+    def may_administer(self) -> bool:
+        """Darf Stammdaten, Personal und Dienstplanung verwalten."""
+        return self.access_level == "admin"
+
+    @property
+    def may_write(self) -> bool:
+        """Darf in den eigenen Gruppen schreiben."""
+        return self.access_level in ("admin", "specialist")
 
     @property
     def is_specialist(self) -> bool:
@@ -450,6 +492,33 @@ class PositionAssignment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.employee} auf {self.position} ({self.fte})"
+
+
+@receiver(post_save, sender=Employee)
+def sync_staff_flag(sender, instance, **kwargs):
+    """
+    Haelt Djangos is_staff an der Zugriffsstufe fest.
+
+    Die Anwendung entscheidet ueber access_level, der Django-Admin ueber
+    is_staff. Liefen die beiden auseinander, koennte jemand im Admin
+    schalten, was ihm in der Anwendung verwehrt ist - oder umgekehrt sich
+    selbst aussperren, ohne zu verstehen warum.
+    """
+    if instance.user_id is None:
+        return
+
+    wanted = instance.access_level == "admin"
+    user = instance.user
+    if user is None or user.is_staff == wanted:
+        return
+
+    # Superuser bleiben unangetastet: ihnen das Flag zu nehmen waere der
+    # kuerzeste Weg, sich aus dem eigenen System auszusperren.
+    if user.is_superuser and not wanted:
+        return
+
+    user.is_staff = wanted
+    user.save(update_fields=["is_staff"])
 
 
 # Änderungsprotokoll und die zugehörigen Signale werden hier eingehängt,

@@ -13,6 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django_grp_backend.access import WriteNeedsRole
 from django_grp_backend.models import ProtocolObservation
 from django_grp_org.tenancy import limit_to_tenant
 
@@ -39,7 +40,7 @@ def accessible_case_files(user):
 class CaseScopedMixin:
     """Prüft bei jedem Zugriff, ob die Fallakte sichtbar ist."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def visible_case_ids(self):
         return accessible_case_files(self.request.user).values_list("id", flat=True)
@@ -276,7 +277,7 @@ class HelpPlanContinueView(APIView):
     ein Datensatz überschrieben wird.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def post(self, request, plan_id: int):
         plan = (
@@ -423,7 +424,7 @@ class CaseTimelineView(APIView):
     Gruppenprotokollen zu dieser Person.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request, case_id: int):
         case_file = accessible_case_files(request.user).filter(id=case_id).first()
@@ -477,7 +478,7 @@ class CaseTimelineView(APIView):
 class ReviewDueView(APIView):
     """Hilfepläne, deren Fortschreibung ansteht - Termine für den Kalender."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request):
         plans = (
