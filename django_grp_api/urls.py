@@ -4,6 +4,7 @@ from rest_framework_nested import routers as nested_routers
 
 from django_grp_care import api as care_api
 from django_grp_duty import api as duty_api
+from django_grp_mail import api as mail_api
 from django_grp_org import api as org_api
 
 from . import views
@@ -107,6 +108,14 @@ duty_router.register(r"shift", duty_api.ShiftViewSet, basename="duty-shift")
 
 urlpatterns = [
     path("v1/auth/login/", LoginView.as_view(), name="auth-login"),
+    path("v1/mail/settings/", mail_api.MailSettingsView.as_view(), name="mail-settings"),
+    path("v1/mail/test/", mail_api.MailTestView.as_view(), name="mail-test"),
+    path("v1/mail/outbox/", mail_api.MailOutboxView.as_view(), name="mail-outbox"),
+    path(
+        "v1/mail/outbox/<int:message_id>/retry/",
+        mail_api.MailRetryView.as_view(),
+        name="mail-retry",
+    ),
     path("v1/auth/logout/", LogoutView.as_view(), name="auth-logout"),
     path("v1/user/profile/", UserProfileView.as_view(), name="user-profile"),
     path("v1/user/me/", UserMeView.as_view(), name="user-me"),
