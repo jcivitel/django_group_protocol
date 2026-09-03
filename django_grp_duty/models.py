@@ -45,10 +45,19 @@ class ShiftType(models.Model):
         verbose_name="Nachtdienst",
         help_text="Zählt für Nachtzuschläge und Ruhezeitprüfung",
     )
+    on_call_minutes = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Davon Bereitschaft in Minuten",
+        help_text=(
+            "Anteil der Dienstzeit, der Bereitschaft ist. 0 = keine. "
+            "Beispiel 24-Stunden-Dienst mit sechs Stunden Nachtbereitschaft: 360."
+        ),
+    )
     is_on_call = models.BooleanField(
         default=False,
-        verbose_name="Bereitschaft",
-        help_text="Wird als Bereitschaftszeit gebucht, nicht als volle Arbeitszeit",
+        editable=False,
+        verbose_name="Enthält Bereitschaft",
+        help_text="Ergibt sich aus der Bereitschaftszeit, nicht selbst zu setzen",
     )
     counts_specialist = models.BooleanField(
         default=True,
@@ -63,25 +72,53 @@ class ShiftType(models.Model):
     def __str__(self) -> str:
         return f"{self.short_code} · {self.name}"
 
+    def save(self, *args, **kwargs):
+        # is_on_call ist abgeleitet: es sagt nur noch, DASS Bereitschaft
+        # enthalten ist. Wie viel, steht in on_call_minutes.
+        self.is_on_call = self.on_call_minutes > 0
+        super().save(*args, **kwargs)
+
     @property
-    def duration_hours(self) -> Decimal:
+    def gross_minutes(self) -> int:
         """
-        Netto-Dauer in Stunden. Dienste über Mitternacht werden mitgezählt.
+        Brutto-Dauer in Minuten, ohne Pause.
 
-        Gleicher Beginn und gleiches Ende heisst null, nicht vierundzwanzig:
-        die Regel "Ende <= Beginn bedeutet ueber Mitternacht" stimmt fuer
-        21:00-07:00, aber nicht fuer 00:00-00:00.
+        Gleicher Beginn und gleiches Ende heisst hier vierundzwanzig Stunden,
+        nicht null: ein Dienst von 10:00 bis 10:00 laeuft rund um die Uhr, und
+        genau den gibt es in der Jugendhilfe. Bei einer Zeitbuchung ist es
+        umgekehrt (siehe TimeEntry.hours) - wer um 08:00 stempelt und um 08:00
+        abstempelt, hat nicht gearbeitet.
         """
-        if self.start_time == self.end_time:
-            return Decimal("0.00")
-
         base = datetime(2000, 1, 1)
         start = base.replace(hour=self.start_time.hour, minute=self.start_time.minute)
         end = base.replace(hour=self.end_time.hour, minute=self.end_time.minute)
         if end <= start:
             end += timedelta(days=1)
-        minutes = (end - start).total_seconds() / 60 - self.break_minutes
+        return int((end - start).total_seconds() // 60)
+
+    @property
+    def duration_hours(self) -> Decimal:
+        """Netto-Dauer in Stunden. Dienste über Mitternacht zählen mit."""
+        minutes = max(0, self.gross_minutes - self.break_minutes)
         return (Decimal(minutes) / Decimal(60)).quantize(Decimal("0.01"))
+
+    @property
+    def on_call_hours(self) -> Decimal:
+        """
+        Wie viel der Netto-Dauer Bereitschaft ist.
+
+        Gedeckelt auf die Dauer: eine Vorgabe von 600 Minuten an einem
+        achtstuendigen Dienst kann nicht mehr als acht Stunden bedeuten.
+        """
+        netto = max(0, self.gross_minutes - self.break_minutes)
+        return (Decimal(min(self.on_call_minutes, netto)) / Decimal(60)).quantize(
+            Decimal("0.01")
+        )
+
+    @property
+    def work_hours(self) -> Decimal:
+        """Der Teil, der volle Arbeitszeit ist."""
+        return (self.duration_hours - self.on_call_hours).quantize(Decimal("0.01"))
 
 
 class StaffingRequirement(models.Model):
@@ -392,6 +429,11 @@ class TimeEntry(models.Model):
     category = models.CharField(
         max_length=20, choices=CATEGORY_CHOICES, default="work", verbose_name="Art"
     )
+    on_call_minutes = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Davon Bereitschaft in Minuten",
+        help_text="Leer lassen - dann gilt der Anteil der Dienstart",
+    )
     note = models.CharField(max_length=200, blank=True, default="")
     approved = models.BooleanField(default=False, verbose_name="Freigegeben")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -428,11 +470,38 @@ class TimeEntry(models.Model):
         return (Decimal(max(minutes, 0)) / Decimal(60)).quantize(Decimal("0.01"))
 
     @property
+    def on_call_hours(self) -> Decimal:
+        """
+        Welcher Teil dieser Buchung Bereitschaft ist.
+
+        Drei Quellen, in dieser Reihenfolge:
+
+        1. der Wert an der Buchung, wenn jemand ihn von Hand gesetzt hat
+        2. der Anteil der Dienstart, wenn die Buchung an einem Dienst haengt
+        3. die ganze Buchung, wenn sie als Kategorie "Bereitschaft" traegt
+
+        Punkt 2 ist der Grund fuer das ganze Feld: ein 24-Stunden-Dienst mit
+        sechs Stunden Nachtbereitschaft laesst sich mit einem Ja/Nein nicht
+        abbilden. Vorher wurde entweder alles halbiert (zwoelf statt
+        einundzwanzig Stunden) oder gar nichts.
+        """
+        minuten = self.on_call_minutes
+        if not minuten and self.shift_id:
+            minuten = self.shift.shift_type.on_call_minutes
+        if not minuten:
+            return self.hours if self.category == "on_call" else Decimal("0.00")
+        return min(self.hours, (Decimal(minuten) / Decimal(60))).quantize(
+            Decimal("0.01")
+        )
+
+    @property
     def credited_hours(self) -> Decimal:
-        """Bereitschaft zählt nur anteilig auf das Arbeitszeitkonto."""
-        if self.category == "on_call":
-            return (self.hours * Decimal("0.5")).quantize(Decimal("0.01"))
-        return self.hours
+        """
+        Was aufs Arbeitszeitkonto zaehlt: Arbeit voll, Bereitschaft halb.
+        """
+        bereitschaft = self.on_call_hours
+        arbeit = self.hours - bereitschaft
+        return (arbeit + bereitschaft * Decimal("0.5")).quantize(Decimal("0.01"))
 
 
 class TimeAccount(models.Model):

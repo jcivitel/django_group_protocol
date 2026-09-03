@@ -57,6 +57,8 @@ def require_staff(request, message="Nur Mitarbeitende dürfen das ändern."):
 
 class ShiftTypeSerializer(serializers.ModelSerializer):
     duration_hours = serializers.SerializerMethodField()
+    on_call_hours = serializers.SerializerMethodField()
+    work_hours = serializers.SerializerMethodField()
 
     class Meta:
         model = ShiftType
@@ -70,10 +72,21 @@ class ShiftTypeSerializer(serializers.ModelSerializer):
             "break_minutes",
             "color",
             "is_night",
+            "on_call_minutes",
             "is_on_call",
             "counts_specialist",
             "duration_hours",
+            "on_call_hours",
+            "work_hours",
         ]
+        # Abgeleitet aus on_call_minutes - siehe ShiftType.save().
+        read_only_fields = ["is_on_call"]
+
+    def get_on_call_hours(self, obj):
+        return str(obj.on_call_hours)
+
+    def get_work_hours(self, obj):
+        return str(obj.work_hours)
 
     def get_duration_hours(self, obj):
         return str(obj.duration_hours)
