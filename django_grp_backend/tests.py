@@ -7,7 +7,26 @@ from datetime import date
 
 
 class PermissionTestCase(APITestCase):
-    """Test cases for 403 Forbidden errors in API endpoints."""
+    """
+    Zugriff ohne Anmeldung wird abgewiesen.
+
+    Erwartet wird 401, nicht 403. Der Unterschied ist keine Kosmetik:
+
+    - **401 Unauthorized** heisst "keine Anmeldedaten dabei" - der Aufrufer
+      soll sich anmelden.
+    - **403 Forbidden** heisst "angemeldet, aber nicht erlaubt" - erneutes
+      Anmelden hilft nicht.
+
+    DRF liefert hier 401, weil in den Einstellungen BasicAuthentication
+    konfiguriert ist und damit ein WWW-Authenticate-Kopf existiert. Das
+    Frontend haengt daran: ApiError.isUnauthorized prueft auf 401 und
+    schickt zur Anmeldung, isForbidden auf 403 und zeigt eine Meldung.
+    Wuerde hier 403 kommen, liefe eine abgelaufene Sitzung in eine
+    Fehlermeldung statt in die Anmeldemaske.
+
+    Diese Tests standen lange auf 403 und waren entsprechend rot - die
+    Erwartung war falsch, nicht die Schnittstelle.
+    """
     
     def setUp(self):
         """Set up test data."""
@@ -104,9 +123,9 @@ class PermissionTestCase(APITestCase):
     # ============ PROTOCOL VIEWSET TESTS ============
     
     def test_protocol_list_unauthenticated(self):
-        """Test protocol list without authentication - should return 403."""
+        """Test protocol list without authentication - should return 401."""
         response = self.client.get('/api/v1/protocol/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_protocol_list_authenticated(self):
         """Test protocol list with authentication - should return 200."""
@@ -124,9 +143,9 @@ class PermissionTestCase(APITestCase):
         self.assertEqual(response.data[0]['id'], self.protocol1.id)
     
     def test_protocol_detail_unauthenticated(self):
-        """Test protocol detail without authentication - should return 403."""
+        """Test protocol detail without authentication - should return 401."""
         response = self.client.get(f'/api/v1/protocol/{self.protocol1.id}/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_protocol_detail_authenticated(self):
         """Test protocol detail with authentication - should return 200."""
@@ -135,12 +154,12 @@ class PermissionTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
     
     def test_protocol_create_unauthenticated(self):
-        """Test protocol creation without authentication - should return 403."""
+        """Test protocol creation without authentication - should return 401."""
         response = self.client.post('/api/v1/protocol/', {
             'protocol_date': '2024-01-15',
             'group': self.group1.id
         })
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_protocol_create_authenticated(self):
         """Test protocol creation with authentication - should return 201."""
@@ -152,12 +171,12 @@ class PermissionTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
     
     def test_protocol_update_unauthenticated(self):
-        """Test protocol update without authentication - should return 403."""
+        """Test protocol update without authentication - should return 401."""
         response = self.client.put(f'/api/v1/protocol/{self.protocol1.id}/', {
             'protocol_date': '2024-01-20',
             'group': self.group1.id
         })
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_protocol_update_authenticated(self):
         """Test protocol update with authentication - should return 200."""
@@ -169,9 +188,9 @@ class PermissionTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
     
     def test_protocol_delete_unauthenticated(self):
-        """Test protocol deletion without authentication - should return 403."""
+        """Test protocol deletion without authentication - should return 401."""
         response = self.client.delete(f'/api/v1/protocol/{self.protocol1.id}/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_protocol_delete_authenticated(self):
         """Test protocol deletion with authentication - should return 204."""
@@ -182,9 +201,9 @@ class PermissionTestCase(APITestCase):
     # ============ GROUP VIEWSET TESTS ============
     
     def test_group_list_unauthenticated(self):
-        """Test group list without authentication - should return 403."""
+        """Test group list without authentication - should return 401."""
         response = self.client.get('/api/v1/group/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_group_list_authenticated(self):
         """Test group list with authentication - should return 200."""
@@ -193,9 +212,9 @@ class PermissionTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
     
     def test_group_detail_unauthenticated(self):
-        """Test group detail without authentication - should return 403."""
+        """Test group detail without authentication - should return 401."""
         response = self.client.get(f'/api/v1/group/{self.group1.id}/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_group_detail_authenticated(self):
         """Test group detail with authentication - should return 200."""
@@ -206,9 +225,9 @@ class PermissionTestCase(APITestCase):
     # ============ RESIDENT VIEWSET TESTS ============
     
     def test_resident_list_unauthenticated(self):
-        """Test resident list without authentication - should return 403."""
+        """Test resident list without authentication - should return 401."""
         response = self.client.get('/api/v1/resident/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_resident_list_authenticated(self):
         """Test resident list with authentication - should return 200."""
@@ -217,9 +236,9 @@ class PermissionTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
     
     def test_resident_detail_unauthenticated(self):
-        """Test resident detail without authentication - should return 403."""
+        """Test resident detail without authentication - should return 401."""
         response = self.client.get(f'/api/v1/resident/{self.resident1.id}/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_resident_detail_authenticated(self):
         """Test resident detail with authentication - should return 200."""
@@ -230,13 +249,13 @@ class PermissionTestCase(APITestCase):
     # ============ PROTOCOL PRESENCE TESTS ============
     
     def test_presence_update_unauthenticated(self):
-        """Test presence update without authentication - should return 403."""
+        """Test presence update without authentication - should return 401."""
         response = self.client.post('/api/v1/presence/', {
             'protocol': self.protocol1.id,
             'user': self.user1.id,
             'was_present': True
         })
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_presence_update_authenticated(self):
         """Test presence update with authentication - should return 200."""
@@ -251,7 +270,7 @@ class PermissionTestCase(APITestCase):
     # ============ PROTOCOL ITEM TESTS ============
     
     def test_item_update_unauthenticated(self):
-        """Test item update without authentication - should return 403."""
+        """Test item update without authentication - should return 401."""
         response = self.client.post('/api/v1/item/', {
             'item_id': self.item1.id,
             'protocol': self.protocol1.id,
@@ -259,7 +278,7 @@ class PermissionTestCase(APITestCase):
             'value': 'Updated Value',
             'position': 1
         })
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_item_update_authenticated(self):
         """Test item update with authentication - should return 200."""
@@ -274,11 +293,11 @@ class PermissionTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
     
     def test_item_delete_unauthenticated(self):
-        """Test item deletion without authentication - should return 403."""
+        """Test item deletion without authentication - should return 401."""
         response = self.client.delete('/api/v1/item/', {
             'item_id': self.item1.id
         })
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_item_delete_authenticated(self):
         """Test item deletion with authentication - should return 200."""
@@ -291,9 +310,9 @@ class PermissionTestCase(APITestCase):
     # ============ MENTION AUTOCOMPLETE TESTS ============
     
     def test_mention_autocomplete_unauthenticated(self):
-        """Test mention autocomplete without authentication - should return 403."""
+        """Test mention autocomplete without authentication - should return 401."""
         response = self.client.get(f'/api/v1/mentions/?protocol_id={self.protocol1.id}')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_mention_autocomplete_authenticated(self):
         """Test mention autocomplete with authentication - should return 200."""
@@ -304,9 +323,9 @@ class PermissionTestCase(APITestCase):
     # ============ LOGOUT TESTS ============
     
     def test_logout_unauthenticated(self):
-        """Test logout without authentication - should return 403."""
+        """Test logout without authentication - should return 401."""
         response = self.client.post('/api/v1/auth/logout/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
     def test_logout_authenticated(self):
         """Test logout with authentication - should return 200."""
@@ -374,3 +393,78 @@ class PermissionTestCase(APITestCase):
         self.assertEqual(self.group1.name, 'New Group Name')
         self.assertEqual(self.group1.city, 'New City')
         self.assertEqual(self.group1.postalcode, original_postalcode)
+
+
+class FremdeGruppeTestCase(APITestCase):
+    """
+    Angemeldet, aber fremde Gruppe: was sieht man nicht?
+
+    Diese Faelle waren nirgends festgehalten - die vorhandenen Tests pruefen
+    nur den Zugriff ganz ohne Anmeldung. Das ist die haertere Frage: eine
+    Fachkraft IST angemeldet und darf trotzdem die Bewohner des Nachbarhauses
+    nicht sehen.
+
+    Die Schnittstelle antwortet mit 404 und nicht mit 403 - und das ist die
+    bessere Wahl: ein 403 wuerde bestaetigen, dass es den Datensatz gibt.
+    Wer die Ids durchprobiert, soll nicht einmal das erfahren.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.eigene = User.objects.create_user(
+            username="eigene", password="testpass123"
+        )
+        self.fremde = User.objects.create_user(
+            username="fremde", password="testpass123"
+        )
+
+        self.gruppe_eigen = Group.objects.create(
+            name="Eigene Gruppe", address="A", postalcode="11111", city="Hier"
+        )
+        self.gruppe_fremd = Group.objects.create(
+            name="Fremde Gruppe", address="B", postalcode="22222", city="Woanders"
+        )
+        self.gruppe_eigen.group_members.add(self.eigene)
+        self.gruppe_fremd.group_members.add(self.fremde)
+
+        self.protokoll_fremd = Protocol.objects.create(
+            protocol_date=date(2024, 5, 1), group=self.gruppe_fremd, status="draft"
+        )
+        self.bewohner_fremd = Resident.objects.create(
+            first_name="Fremd",
+            last_name="Kind",
+            moved_in_since=date(2020, 1, 1),
+            group=self.gruppe_fremd,
+        )
+
+        self.client.force_authenticate(user=self.eigene)
+
+    def test_fremdes_protokoll_nicht_lesbar(self):
+        antwort = self.client.get(f"/api/v1/protocol/{self.protokoll_fremd.id}/")
+        self.assertEqual(antwort.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_fremdes_protokoll_nicht_aenderbar(self):
+        antwort = self.client.patch(
+            f"/api/v1/protocol/{self.protokoll_fremd.id}/", {"status": "ready"}
+        )
+        self.assertEqual(antwort.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_fremde_gruppe_nicht_lesbar(self):
+        antwort = self.client.get(f"/api/v1/group/{self.gruppe_fremd.id}/")
+        self.assertEqual(antwort.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_fremder_bewohner_nicht_lesbar(self):
+        antwort = self.client.get(f"/api/v1/resident/{self.bewohner_fremd.id}/")
+        self.assertEqual(antwort.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_liste_zeigt_nur_eigene_gruppe(self):
+        antwort = self.client.get("/api/v1/group/")
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+        namen = [eintrag["name"] for eintrag in antwort.data]
+        self.assertEqual(namen, ["Eigene Gruppe"])
+
+    def test_protokollliste_enthaelt_kein_fremdes(self):
+        antwort = self.client.get("/api/v1/protocol/")
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+        ids = [eintrag["id"] for eintrag in antwort.data]
+        self.assertNotIn(self.protokoll_fremd.id, ids)
