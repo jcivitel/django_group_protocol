@@ -3,6 +3,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from decouple import Csv
+from celery.schedules import crontab
 from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -216,3 +217,38 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # API-only backend configuration
 # No login URLs needed
+
+
+# ============================================================ Celery
+#
+# Hintergrundaufgaben: Mailversand und der taegliche Blick auf faellige
+# Aufgaben. Der Broker ist Redis (Container "redis" aus docker-compose.yml).
+#
+# Wichtig fuer den Betrieb: faellt Redis aus, faellt nicht die Anwendung aus.
+# Der Mailversand merkt es und verschickt direkt weiter - siehe
+# django_grp_mail/service.py. Was dann fehlt, ist die Wiederholung bei
+# Fehlern, nicht die Mail selbst.
+
+CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://redis:6379/0")
+CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default="redis://redis:6379/1")
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = True
+
+# Wartet nicht ewig, wenn der Broker weg ist - sonst haengt der Aufruf, der
+# die Mail einstellen wollte, und die Fachkraft sieht eine drehende Scheibe.
+CELERY_BROKER_TRANSPORT_OPTIONS = {"max_retries": 1}
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_CONNECTION_TIMEOUT = 3
+
+CELERY_BEAT_SCHEDULE = {
+    "faellige-aufgaben-erinnern": {
+        "task": "django_grp_mail.erinnere_an_faellige_aufgaben",
+        # Jeden Morgen um sieben - vor dem Fruehdienst, nicht mitten in der
+        # Nacht: wer die Mail um drei Uhr bekommt, liest sie trotzdem erst
+        # morgens, und im Postfach steht dann ein sinnloser Zeitstempel.
+        "schedule": crontab(hour=7, minute=0),
+    },
+}
