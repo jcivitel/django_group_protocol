@@ -33,6 +33,7 @@ from .models import (
     TimeAccount,
     TimeEntry,
 )
+from .autofill import autofill_plan
 from .rules import check_plan
 from .services import (
     close_month,
@@ -379,6 +380,29 @@ class DutyPlanGenerateView(APIView):
 
         created = generate_shifts(plan, shift_types, weekdays)
         return Response({"created": created})
+
+
+class DutyPlanAutofillView(APIView):
+    """Besetzt die offenen Dienste eines Plans automatisch."""
+
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
+
+    def post(self, request, plan_id: int):
+        require_staff(request, "Nur Mitarbeitende dürfen Dienste einteilen.")
+        plan = (
+            DutyPlan.objects.filter(id=plan_id)
+            .select_related("department__facility__site__provider")
+            .first()
+        )
+        if plan is None:
+            return Response({"error": "Dienstplan nicht gefunden."}, status=404)
+        if not plan.is_editable:
+            return Response({"error": "Dienstplan ist gesperrt."}, status=403)
+
+        # Neu verteilen loescht bestehende Einteilungen - das muss die
+        # Oberflaeche ausdruecklich verlangen, nicht versehentlich ausloesen.
+        overwrite = bool(request.data.get("overwrite"))
+        return Response(autofill_plan(plan, overwrite=overwrite))
 
 
 class SubstituteSearchView(APIView):
