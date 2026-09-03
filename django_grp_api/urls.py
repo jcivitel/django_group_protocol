@@ -141,6 +141,11 @@ urlpatterns = [
         name="duty-plan-generate",
     ),
     path(
+        "v1/duty-plan/<int:plan_id>/autofill/",
+        duty_api.DutyPlanAutofillView.as_view(),
+        name="duty-plan-autofill",
+    ),
+    path(
         "v1/substitutes/<int:shift_id>/",
         duty_api.SubstituteSearchView.as_view(),
         name="substitute-search",

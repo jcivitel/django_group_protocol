@@ -17,6 +17,32 @@ from .models import Absence, Shift, TimeAccount, TimeEntry
 from .rules import MIN_REST_HOURS
 
 
+def ueberschneidet(a, b) -> bool:
+    """
+    Laufen diese beiden Dienste zur selben Zeit?
+
+    Verglichen werden die vollen Zeitpunkte, nicht die Datumsfelder. Ein
+    Nachtdienst am 28. endet am 29. um 10:30 und kollidiert damit mit einem
+    24-Stunden-Dienst, der am 29. um 10:00 beginnt - zwei verschiedene
+    Kalendertage, ein und dieselbe halbe Stunde.
+
+    Genau dieser Fall fiel vorher durch: geprueft wurde nur "gleicher Tag"
+    und danach die Ruhezeit, und die Ruhezeit zwischen zwei sich
+    ueberlappenden Diensten ist negativ - also ausserhalb des Fensters, das
+    die Pruefung beanstandet hat.
+    """
+    return a.starts_at < b.ends_at and b.starts_at < a.ends_at
+
+
+def ruhezeit(a, b) -> timedelta | None:
+    """
+    Die Pause zwischen zwei Diensten. None, wenn sie sich ueberschneiden.
+    """
+    if ueberschneidet(a, b):
+        return None
+    return b.starts_at - a.ends_at if a.ends_at <= b.starts_at else a.starts_at - b.ends_at
+
+
 def find_substitutes(shift) -> list[dict]:
     """
     Sucht Personen, die einen offenen Dienst übernehmen könnten.
@@ -75,14 +101,17 @@ def find_substitutes(shift) -> list[dict]:
                 reasons.append(f"hat am selben Tag {other.shift_type.short_code}")
                 blocked = True
                 continue
-            # Ruhezeit zum Vor- oder Folgetag prüfen.
-            gap = (
-                shift.starts_at - other.ends_at
-                if other.ends_at <= shift.starts_at
-                else other.starts_at - shift.ends_at
-            )
-            if timedelta(0) <= gap < timedelta(hours=MIN_REST_HOURS):
-                hours = round(gap.total_seconds() / 3600, 1)
+
+            pause = ruhezeit(other, shift)
+            if pause is None:
+                reasons.append(
+                    f"überschneidet sich mit {other.shift_type.short_code} "
+                    f"am {other.date:%d.%m.}"
+                )
+                blocked = True
+                continue
+            if timedelta(0) <= pause < timedelta(hours=MIN_REST_HOURS):
+                hours = round(pause.total_seconds() / 3600, 1)
                 reasons.append(
                     f"nur {hours} h Ruhezeit zu {other.shift_type.short_code}"
                 )
@@ -160,9 +189,18 @@ def target_hours_for_month(employee, year: int, month: int) -> Decimal:
     """
     Soll-Stunden eines Monats aus dem Arbeitszeitmodell.
 
-    Gerechnet wird über die Werktage im Monat, weil das Arbeitszeitmodell
-    Wochenstunden und Tage pro Woche vorgibt. Feiertage kennt das System
-    noch nicht - sie müssten als Abwesenheit erfasst werden.
+    Gerechnet wird ueber die Wochenstunden mal der Zahl der Wochen im Monat,
+    und die wiederum aus den Werktagen: ein Monat mit 22 Werktagen hat 22/5
+    Arbeitswochen.
+
+    Frueher stand hier "Tagesstunden mal Werktage" - das war falsch, sobald
+    ein Modell weniger als fuenf Tage die Woche vorsah. Teilzeit 50 % (19,5 h
+    an 3 Tagen) ergab 6,5 h an 22 Tagen und damit 143 Stunden im Monat, mehr
+    als Teilzeit 75 % mit 129. Der Fehler faellt nur auf, wenn man die Zahlen
+    nebeneinander sieht - und genau das tut die Teamspalte im Dienstplan.
+
+    Feiertage kennt das System noch nicht; sie muessten als Abwesenheit
+    erfasst werden.
     """
     model = employee.work_time_model
     if not model:
@@ -172,8 +210,8 @@ def target_hours_for_month(employee, year: int, month: int) -> Decimal:
     weekdays = sum(
         1 for day in range(1, days_in_month + 1) if date(year, month, day).weekday() < 5
     )
-    daily = model.weekly_hours / (model.days_per_week or Decimal("5"))
-    return (daily * weekdays).quantize(Decimal("0.01"))
+    wochen = Decimal(weekdays) / Decimal("5")
+    return (model.weekly_hours * wochen).quantize(Decimal("0.01"))
 
 
 def close_month(employee, year: int, month: int) -> TimeAccount:
@@ -248,16 +286,51 @@ def vacation_balance(employee, year: int) -> dict:
     }
 
 
+def slots_per_day(department, shift_types) -> dict[int, int]:
+    """
+    Wie viele Plaetze je Dienstart und Tag gebraucht werden.
+
+    Die Zahl steht in den Besetzungsvorgaben des Bereichs: "im Tagdienst
+    muessen zwei da sein" heisst zwei Plaetze, nicht einen. Frueher legte der
+    Generator stur einen Dienst je Art und Tag an - damit war die Vorgabe
+    schon beim Anlegen verletzt, und wer eine zweite Person einteilen wollte,
+    hatte keine Zeile dafuer.
+
+    Vorgaben mit Uhrzeit-Fenster bleiben hier aussen vor. Sie greifen quer
+    ueber die Dienstarten, und welche davon die Luecke fuellen soll, laesst
+    sich nicht ausrechnen - das prueft die Regelpruefung hinterher.
+    """
+    from .models import StaffingRequirement
+
+    vorgaben = {
+        eintrag.shift_type_id: eintrag.minimum_staff
+        for eintrag in StaffingRequirement.objects.filter(
+            department=department, shift_type__isnull=False
+        )
+    }
+    return {
+        shift_type.id: max(1, vorgaben.get(shift_type.id, 1))
+        for shift_type in shift_types
+    }
+
+
 def generate_shifts(plan, shift_types, weekdays=None) -> int:
     """
     Legt für einen Monat die Dienste an, zunächst alle unbesetzt.
 
-    `weekdays` schränkt auf bestimmte Wochentage ein (0 = Montag). Bereits
-    vorhandene Dienste bleiben unberührt, damit ein zweiter Aufruf nichts
-    doppelt anlegt.
+    `weekdays` schränkt auf bestimmte Wochentage ein (0 = Montag). Vorhandene
+    Dienste bleiben unberührt: gezählt wird, wie viele Plätze eine Dienstart
+    an einem Tag schon hat, und nur die fehlenden kommen dazu. Ein zweiter
+    Aufruf legt also nichts doppelt an - füllt aber auf, wenn die
+    Besetzungsvorgabe inzwischen erhöht wurde.
     """
     days_in_month = calendar.monthrange(plan.year, plan.month)[1]
-    existing = set(plan.shifts.values_list("date", "shift_type_id"))
+
+    vorhanden: dict[tuple, int] = {}
+    for tag, art in plan.shifts.values_list("date", "shift_type_id"):
+        vorhanden[(tag, art)] = vorhanden.get((tag, art), 0) + 1
+
+    bedarf = slots_per_day(plan.department, shift_types)
 
     created = 0
     for day in range(1, days_in_month + 1):
@@ -265,8 +338,8 @@ def generate_shifts(plan, shift_types, weekdays=None) -> int:
         if weekdays is not None and current.weekday() not in weekdays:
             continue
         for shift_type in shift_types:
-            if (current, shift_type.id) in existing:
-                continue
-            Shift.objects.create(plan=plan, date=current, shift_type=shift_type)
-            created += 1
+            fehlt = bedarf[shift_type.id] - vorhanden.get((current, shift_type.id), 0)
+            for _ in range(max(0, fehlt)):
+                Shift.objects.create(plan=plan, date=current, shift_type=shift_type)
+                created += 1
     return created
