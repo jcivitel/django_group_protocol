@@ -19,7 +19,9 @@ from django.conf import settings
 from django_grp_org.models import Employee
 from django_grp_org.tenancy import limit_to_tenant
 
-from .models import Absence, TimeAccount
+from django_grp_org.holiday_service import feiertage_im_zeitraum
+
+from .models import Absence, Shift, TimeAccount
 
 # Vorgabe: Lohnart-Nummer und Bezeichnung je Größe.
 DEFAULT_WAGE_TYPES = {
@@ -28,6 +30,8 @@ DEFAULT_WAGE_TYPES = {
     "shortfall": ("1150", "Minderstunden"),
     "on_call": ("1200", "Bereitschaft"),
     "night": ("1300", "Nachtstunden"),
+    "holiday": ("1400", "Feiertagsstunden"),
+    "sunday": ("1500", "Sonntagsstunden"),
     "vacation": ("3000", "Urlaubstage"),
     "sick": ("3100", "Krankheitstage"),
 }
@@ -61,6 +65,46 @@ def _absence_days(employee, year: int, month: int, kind: str) -> int:
     return total
 
 
+def _zuschlagsstunden(employee, year: int, month: int) -> tuple[Decimal, Decimal]:
+    """
+    Stunden an Feiertagen und an Sonntagen.
+
+    Zaehlt die geplanten Dienste, nicht die Zeitbuchungen: die Zuschlagsfrage
+    haengt am Kalendertag, und der steht am Dienst. Ein Dienst ueber
+    Mitternacht wird dem Tag zugeordnet, an dem er beginnt - das ist die
+    uebliche Handhabung und die einzige, die ohne Aufteilung auskommt.
+
+    Die Prozentsaetze stehen hier bewusst nicht: sie folgen dem Tarifwerk
+    (TVoeD SuE kennt andere als AVR oder Haustarif), und eine falsche Zahl im
+    Code waere schlimmer als gar keine. Uebergeben werden die Stunden, den
+    Satz rechnet die Lohnabrechnung.
+    """
+    first = date(year, month, 1)
+    last = date(year, month, calendar.monthrange(year, month)[1])
+    feiertage = feiertage_im_zeitraum(employee.provider, first, last)
+
+    feiertagsstunden = Decimal("0")
+    sonntagsstunden = Decimal("0")
+
+    dienste = Shift.objects.filter(
+        employee=employee, date__gte=first, date__lte=last
+    ).select_related("shift_type")
+
+    for dienst in dienste:
+        stunden = dienst.shift_type.duration_hours
+        if dienst.date in feiertage:
+            feiertagsstunden += stunden
+        elif dienst.date.weekday() == 6:
+            # Faellt beides zusammen, zaehlt der Feiertag - sonst stuende
+            # dieselbe Stunde zweimal in der Abrechnung.
+            sonntagsstunden += stunden
+
+    return (
+        feiertagsstunden.quantize(Decimal("0.01")),
+        sonntagsstunden.quantize(Decimal("0.01")),
+    )
+
+
 def build_rows(user, year: int, month: int) -> list[dict]:
     """
     Abrechnungszeilen für einen Monat.
@@ -87,6 +131,12 @@ def build_rows(user, year: int, month: int) -> list[dict]:
             ("shortfall", -balance if balance < 0 else Decimal("0")),
             ("on_call", account.on_call_hours),
             ("night", account.night_hours),
+        ]
+
+        feiertagsstunden, sonntagsstunden = _zuschlagsstunden(employee, year, month)
+        entries += [
+            ("holiday", feiertagsstunden),
+            ("sunday", sonntagsstunden),
         ]
 
         day_entries = [

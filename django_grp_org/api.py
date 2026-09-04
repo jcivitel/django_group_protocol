@@ -19,6 +19,8 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django_grp_backend.access import WriteNeedsRole, is_admin
 from django_grp_backend.functions import upload_too_large
 from .audit import AuditEvent
+from .holiday_service import jahr_anlegen
+from .holidays import BUNDESLAENDER
 from .tenancy import limit_to_tenant, tenant_providers
 from .models import (
     Contract,
@@ -26,6 +28,7 @@ from .models import (
     Employee,
     EmployeeQualification,
     Facility,
+    Holiday,
     Position,
     PositionAssignment,
     Provider,
@@ -515,6 +518,92 @@ class DepartmentViewSet(StaffWritableViewSet):
 class QualificationViewSet(StaffWritableViewSet):
     serializer_class = QualificationSerializer
     queryset = Qualification.objects.all()
+
+
+class HolidaySerializer(serializers.ModelSerializer):
+    is_half_day = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Holiday
+        fields = ["id", "provider", "date", "name", "factor", "note", "is_half_day"]
+        extra_kwargs = {"provider": {"required": False}}
+
+    def validate_factor(self, wert):
+        if wert < 0 or wert > 1:
+            raise serializers.ValidationError(
+                "Der verbleibende Arbeitstag liegt zwischen 0 und 1."
+            )
+        return wert
+
+
+class HolidayViewSet(StaffWritableViewSet):
+    """
+    Feiertage des Traegers.
+
+    Ohne Jahresfilter kaeme die ganze Historie mit; die Oberflaeche fragt
+    immer ein Jahr ab.
+    """
+
+    serializer_class = HolidaySerializer
+
+    def get_queryset(self):
+        queryset = limit_to_tenant(Holiday.objects.all(), self.request.user)
+        jahr = self.request.query_params.get("jahr")
+        if jahr:
+            queryset = queryset.filter(date__year=jahr)
+        return queryset
+
+    def perform_create(self, serializer):
+        self._require_staff()
+        # Es gibt genau einen Traeger; ihn im Formular abzufragen waere eine
+        # Auswahlliste mit einem Eintrag.
+        provider = serializer.validated_data.get("provider") or Provider.objects.first()
+        serializer.save(provider=provider)
+
+
+class HolidayGenerateView(APIView):
+    """
+    Legt die gesetzlichen Feiertage eines Jahres an.
+
+    Der Aufruf ist wiederholbar: was schon steht, bleibt. Wer Heiligabend
+    geloescht hat, weil im Haus durchgearbeitet wird, bekommt ihn nicht
+    zurueck.
+    """
+
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
+
+    def get(self, request):
+        """Die Auswahlliste der Bundeslaender - fuer das Formular."""
+        return Response(
+            [{"value": kuerzel, "label": name} for kuerzel, name in BUNDESLAENDER]
+        )
+
+    def post(self, request):
+        if not is_admin(request.user):
+            raise PermissionDenied("Nur die Verwaltung darf Feiertage anlegen.")
+
+        provider = Provider.objects.first()
+        if provider is None:
+            return Response({"error": "Es gibt noch keinen Träger."}, status=400)
+
+        try:
+            jahr = int(request.data.get("year"))
+        except (TypeError, ValueError):
+            return Response({"error": "Bitte ein Jahr angeben."}, status=400)
+        if not 1990 <= jahr <= 2100:
+            return Response({"error": "Das Jahr liegt ausserhalb des Bereichs."}, status=400)
+
+        land = str(request.data.get("state") or "").upper()
+        if land not in {kuerzel for kuerzel, _ in BUNDESLAENDER}:
+            return Response({"error": "Bitte ein Bundesland wählen."}, status=400)
+
+        bericht = jahr_anlegen(
+            provider,
+            jahr,
+            land,
+            mit_halben_tagen=bool(request.data.get("with_half_days", True)),
+        )
+        return Response(bericht)
 
 
 class WorkTimeModelViewSet(StaffWritableViewSet):

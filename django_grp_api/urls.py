@@ -41,6 +41,7 @@ router.register(r"facility", org_api.FacilityViewSet, "facility")
 router.register(r"department", org_api.DepartmentViewSet, "department")
 router.register(r"qualification", org_api.QualificationViewSet, "qualification")
 router.register(r"worktime-model", org_api.WorkTimeModelViewSet, "worktime-model")
+router.register(r"holiday", org_api.HolidayViewSet, "holiday")
 router.register(r"employee", org_api.EmployeeViewSet, "employee")
 router.register(r"contract", org_api.ContractViewSet, "contract")
 router.register(
@@ -129,6 +130,13 @@ urlpatterns = [
         "v1/staffing-plan/",
         org_api.StaffingPlanView.as_view(),
         name="staffing-plan",
+    ),
+    # Eigener Praefix, kein "holiday/generate/": der Router haette "generate"
+    # als Datensatz-Id gelesen. Dieselbe Regel wie bei staffing-plan.
+    path(
+        "v1/holiday-generate/",
+        org_api.HolidayGenerateView.as_view(),
+        name="holiday-generate",
     ),
     path(
         "v1/duty-plan/<int:plan_id>/rules/",

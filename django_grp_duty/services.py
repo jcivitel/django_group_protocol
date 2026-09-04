@@ -11,6 +11,7 @@ from decimal import Decimal
 
 from django.db.models import Q
 
+from django_grp_org.holiday_service import arbeitstage_im_monat
 from django_grp_org.models import Employee
 
 from .models import Absence, Shift, TimeAccount, TimeEntry
@@ -190,8 +191,8 @@ def target_hours_for_month(employee, year: int, month: int) -> Decimal:
     Soll-Stunden eines Monats aus dem Arbeitszeitmodell.
 
     Gerechnet wird ueber die Wochenstunden mal der Zahl der Wochen im Monat,
-    und die wiederum aus den Werktagen: ein Monat mit 22 Werktagen hat 22/5
-    Arbeitswochen.
+    und die wiederum aus den Arbeitstagen: ein Monat mit 22 Arbeitstagen hat
+    22/5 Arbeitswochen.
 
     Frueher stand hier "Tagesstunden mal Werktage" - das war falsch, sobald
     ein Modell weniger als fuenf Tage die Woche vorsah. Teilzeit 50 % (19,5 h
@@ -199,18 +200,18 @@ def target_hours_for_month(employee, year: int, month: int) -> Decimal:
     als Teilzeit 75 % mit 129. Der Fehler faellt nur auf, wenn man die Zahlen
     nebeneinander sieht - und genau das tut die Teamspalte im Dienstplan.
 
-    Feiertage kennt das System noch nicht; sie muessten als Abwesenheit
-    erfasst werden.
+    Feiertage zaehlen jetzt mit: ein ganzer Feiertag ist kein Arbeitstag, ein
+    halber zaehlt zur Haelfte. Der Dezember mit Weihnachten und Silvester ist
+    damit rund einen Arbeitstag kuerzer als der November - vorher waren
+    beide gleich lang, und das Zeitkonto zeigte am Jahresende ein Minus, das
+    niemand gearbeitet hatte.
     """
     model = employee.work_time_model
     if not model:
         return Decimal("0")
 
-    days_in_month = calendar.monthrange(year, month)[1]
-    weekdays = sum(
-        1 for day in range(1, days_in_month + 1) if date(year, month, day).weekday() < 5
-    )
-    wochen = Decimal(weekdays) / Decimal("5")
+    arbeitstage = arbeitstage_im_monat(employee.provider, year, month)
+    wochen = arbeitstage / Decimal("5")
     return (model.weekly_hours * wochen).quantize(Decimal("0.01"))
 
 
