@@ -550,3 +550,149 @@ class AnmeldungTestCase(APITestCase):
             self.anmelden("m.mustermann@beispiel.de").status_code,
             status.HTTP_401_UNAUTHORIZED,
         )
+
+
+class TabellenEintragTestCase(APITestCase):
+    """
+    Tabellen ueberleben das Speichern.
+
+    Der Endpunkt schrieb lange nur Name, Wert und Position. `kind` und `data`
+    fielen unter den Tisch - und damit die ganze Tabelle: wer aus dem Menue
+    eine Aufgabenliste waehlte und speicherte, bekam einen leeren Freitext
+    zurueck. Beim Bearbeiten einer bestehenden Tabelle verschwand die
+    Aenderung, und die alte Tabelle kam wieder.
+
+    Diese Tests halten beide Richtungen fest, dazu den Fall, dass ein
+    aelterer Client die Felder gar nicht kennt - dann darf er eine
+    vorhandene Tabelle nicht mitloeschen.
+    """
+
+    def setUp(self):
+        self.person = User.objects.create_user(
+            username="fachkraft", password="EinGutesPasswort1"
+        )
+        self.gruppe = Group.objects.create(
+            name="Wohngruppe", address="Weg 1", postalcode="42651", city="Solingen"
+        )
+        self.gruppe.group_members.add(self.person)
+        self.protokoll = Protocol.objects.create(
+            protocol_date=date(2026, 9, 4), group=self.gruppe, status="draft"
+        )
+        self.client.force_authenticate(user=self.person)
+
+    TABELLE = {
+        "columns": ["Aufgabe", "Verantwortung", "Termin"],
+        "rows": [["Elterngespräch", "Miriam", "12.09."], ["", "", ""]],
+    }
+
+    def test_neue_tabelle_bleibt_eine_tabelle(self):
+        antwort = self.client.post(
+            "/api/v1/item/",
+            {
+                "protocol": self.protokoll.id,
+                "name": "Aufgaben",
+                "position": 0,
+                "value": "",
+                "kind": "table",
+                "data": self.TABELLE,
+            },
+            format="json",
+        )
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+
+        eintrag = ProtocolItem.objects.get(protocol=self.protokoll)
+        self.assertEqual(eintrag.kind, "table")
+        self.assertEqual(eintrag.data, self.TABELLE)
+
+    def test_geaenderte_tabelle_wird_gespeichert(self):
+        eintrag = ProtocolItem.objects.create(
+            protocol=self.protokoll,
+            name="Aufgaben",
+            position=0,
+            value="",
+            kind="table",
+            data=self.TABELLE,
+        )
+        geaendert = {
+            "columns": ["Aufgabe", "Verantwortung", "Termin"],
+            "rows": [["Elterngespräch", "Miriam", "19.09."]],
+        }
+
+        antwort = self.client.post(
+            "/api/v1/item/",
+            {
+                "id": eintrag.id,
+                "protocol": self.protokoll.id,
+                "name": "Aufgaben",
+                "position": 0,
+                "value": "",
+                "kind": "table",
+                "data": geaendert,
+            },
+            format="json",
+        )
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+
+        eintrag.refresh_from_db()
+        self.assertEqual(eintrag.data, geaendert)
+
+    def test_umbau_zu_freitext_leert_die_tabelle(self):
+        """Wer ausdruecklich data=null schickt, meint das auch."""
+        eintrag = ProtocolItem.objects.create(
+            protocol=self.protokoll,
+            name="Aufgaben",
+            position=0,
+            value="",
+            kind="table",
+            data=self.TABELLE,
+        )
+
+        self.client.post(
+            "/api/v1/item/",
+            {
+                "id": eintrag.id,
+                "protocol": self.protokoll.id,
+                "name": "Notiz",
+                "position": 0,
+                "value": "Doch lieber Fließtext.",
+                "kind": "text",
+                "data": None,
+            },
+            format="json",
+        )
+
+        eintrag.refresh_from_db()
+        self.assertEqual(eintrag.kind, "text")
+        self.assertIsNone(eintrag.data)
+        self.assertEqual(eintrag.value, "Doch lieber Fließtext.")
+
+    def test_alter_client_loescht_keine_tabelle(self):
+        """
+        Der Flutter-Client kennt kind und data nicht. Schickt er nur Name und
+        Wert, darf die vorhandene Tabelle nicht verschwinden.
+        """
+        eintrag = ProtocolItem.objects.create(
+            protocol=self.protokoll,
+            name="Aufgaben",
+            position=0,
+            value="",
+            kind="table",
+            data=self.TABELLE,
+        )
+
+        self.client.post(
+            "/api/v1/item/",
+            {
+                "id": eintrag.id,
+                "protocol": self.protokoll.id,
+                "name": "Aufgaben neu benannt",
+                "position": 1,
+                "value": "",
+            },
+            format="json",
+        )
+
+        eintrag.refresh_from_db()
+        self.assertEqual(eintrag.name, "Aufgaben neu benannt")
+        self.assertEqual(eintrag.kind, "table")
+        self.assertEqual(eintrag.data, self.TABELLE)
