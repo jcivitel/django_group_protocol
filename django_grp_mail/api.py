@@ -17,7 +17,8 @@ from rest_framework.views import APIView
 
 from django_grp_backend.access import is_admin
 
-from .models import MailMessage, MailSettings
+from .models import MailMessage, MailSettings, PushSubscription
+from .push import an_person, schluesselpaar, senden
 from .service import einstellen, versenden
 
 KEIN_ZUTRITT = {"error": "Die E-Mail-Einstellungen darf nur die Verwaltung ändern."}
@@ -37,6 +38,11 @@ class MailSettingsSerializer(serializers.ModelSerializer):
     )
     has_password = serializers.BooleanField(read_only=True)
     ready = serializers.BooleanField(read_only=True)
+    # Der oeffentliche Schluessel darf gelesen werden - der Browser braucht
+    # ihn. Der private nie; die API meldet nur, ob es ihn gibt.
+    vapid_public_key = serializers.CharField(read_only=True)
+    has_vapid_keys = serializers.BooleanField(read_only=True)
+    push_ready = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = MailSettings
@@ -53,6 +59,10 @@ class MailSettingsSerializer(serializers.ModelSerializer):
             "timeout_seconds",
             "enabled",
             "ready",
+            "push_enabled",
+            "vapid_public_key",
+            "has_vapid_keys",
+            "push_ready",
             "updated_at",
         ]
         read_only_fields = ["updated_at"]
@@ -171,6 +181,141 @@ class MailTestView(APIView):
         return Response(daten, status=status.HTTP_502_BAD_GATEWAY)
 
 
+class PushKeysView(APIView):
+    """
+    Erzeugt ein neues VAPID-Schluesselpaar.
+
+    Das ist keine harmlose Aktion: mit einem neuen Schluessel verlieren alle
+    bestehenden Anmeldungen ihre Gueltigkeit, und jedes Geraet muss sich
+    erneut anmelden. Deshalb nur auf ausdrueckliche Anforderung und mit
+    einem Hinweis in der Antwort, wie viele Anmeldungen betroffen sind.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not is_admin(request.user):
+            return Response(KEIN_ZUTRITT, status=status.HTTP_403_FORBIDDEN)
+
+        einstellungen = MailSettings.laden()
+        betroffen = PushSubscription.objects.count()
+
+        privat, oeffentlich = schluesselpaar()
+        einstellungen.vapid_private_key = privat
+        einstellungen.vapid_public_key = oeffentlich
+        einstellungen.save()
+
+        # Die alten Anmeldungen sind mit dem neuen Schluessel wertlos. Sie
+        # stehen zu lassen hiesse, es bei jedem Versand erneut zu versuchen.
+        PushSubscription.objects.all().delete()
+
+        return Response(
+            {
+                "public_key": oeffentlich,
+                "removed_subscriptions": betroffen,
+            }
+        )
+
+
+class PushSubscribeView(APIView):
+    """
+    Ein Geraet an- oder abmelden.
+
+    Braucht keine Verwaltungsrechte: hier meldet jede Person ihr eigenes
+    Geraet an, und mehr als das eigene bekommt sie auch nicht zu sehen.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Was der Browser braucht, um sich anzumelden."""
+        einstellungen = MailSettings.laden()
+        return Response(
+            {
+                "enabled": einstellungen.push_ready,
+                "public_key": einstellungen.vapid_public_key
+                if einstellungen.push_ready
+                else "",
+                "devices": PushSubscription.objects.filter(
+                    user=request.user
+                ).count(),
+            }
+        )
+
+    def post(self, request):
+        endpoint = (request.data.get("endpoint") or "").strip()
+        keys = request.data.get("keys") or {}
+        p256dh = (keys.get("p256dh") or "").strip()
+        auth = (keys.get("auth") or "").strip()
+
+        if not endpoint or not p256dh or not auth:
+            return Response(
+                {"error": "Die Anmeldung des Browsers war unvollständig."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # update_or_create ueber den endpoint: dasselbe Geraet meldet sich
+        # mit derselben Adresse wieder an, statt eine zweite Zeile anzulegen.
+        PushSubscription.objects.update_or_create(
+            endpoint=endpoint,
+            defaults={
+                "user": request.user,
+                "p256dh": p256dh,
+                "auth": auth,
+                "user_agent": (request.data.get("user_agent") or "")[:250],
+            },
+        )
+        return Response({"ok": True})
+
+    def delete(self, request):
+        endpoint = (request.data.get("endpoint") or "").strip()
+        geloescht = PushSubscription.objects.filter(
+            user=request.user, endpoint=endpoint
+        ).delete()
+        return Response({"removed": geloescht[0]})
+
+
+class PushTestView(APIView):
+    """Schickt eine Probe an die eigenen Geraete."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from django_grp_org.models import Employee
+
+        einstellungen = MailSettings.laden()
+        if not einstellungen.push_ready:
+            return Response(
+                {"error": "Push ist nicht eingerichtet oder ausgeschaltet."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        person = Employee.objects.filter(user=request.user).first()
+        if person is None:
+            # Ohne Personaldatensatz geht der uebliche Weg nicht - fuer die
+            # Probe reicht das Konto.
+            erreicht = 0
+            for abo in PushSubscription.objects.filter(user=request.user):
+                geklappt, _ = senden(
+                    abo, "Probe", "Push ist eingerichtet.", "/einstellungen"
+                )
+                erreicht += 1 if geklappt else 0
+        else:
+            erreicht = an_person(
+                person, "Probe", "Push ist eingerichtet.", "/einstellungen"
+            )
+
+        if erreicht == 0:
+            return Response(
+                {
+                    "error": "Kein Gerät erreicht. Ist dieses Gerät angemeldet?",
+                    "reached": 0,
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"reached": erreicht})
+
+
 class MailOutboxView(APIView):
     """Die letzten Mails - was rausging und was nicht."""
 
@@ -223,6 +368,9 @@ class MailRetryView(APIView):
 
 __all__ = [
     "MailSettingsView",
+    "PushKeysView",
+    "PushSubscribeView",
+    "PushTestView",
     "MailTestView",
     "MailOutboxView",
     "MailRetryView",

@@ -41,6 +41,44 @@ def verbindung(einstellungen: MailSettings):
     )
 
 
+def benachrichtigen(
+    person,
+    *,
+    subject: str,
+    body: str,
+    kind: str = "test",
+    push_text: str | None = None,
+    push_url: str = "/dashboard",
+) -> MailMessage | None:
+    """
+    Eine Person auf beiden Wegen erreichen: Mail und Push.
+
+    Die Mail traegt den ganzen Inhalt, die Push-Nachricht nur den Anlass.
+    Eine Push-Nachricht erscheint auf einem Sperrbildschirm, oft vor fremden
+    Augen - dort steht deshalb "Dein Antrag wurde entschieden" und nicht,
+    worum es ging. Das Wesentliche steht in der Anwendung, hinter der
+    Anmeldung.
+
+    Push ist eine Zugabe, kein Ersatz: schlaegt es fehl, ist die Mail
+    trotzdem raus, und umgekehrt.
+    """
+    from .push import an_person
+
+    adresse = (getattr(person, "email", "") or "").strip()
+    nachricht = (
+        einstellen(to=adresse, subject=subject, body=body, kind=kind)
+        if adresse
+        else None
+    )
+
+    try:
+        an_person(person, subject, push_text or subject, push_url)
+    except Exception:  # noqa: BLE001
+        logger.exception("Push-Benachrichtigung fehlgeschlagen")
+
+    return nachricht
+
+
 def einstellen(*, to: str, subject: str, body: str, kind: str = "test") -> MailMessage:
     """
     Legt die Mail in den Postausgang und stoesst den Versand an.
