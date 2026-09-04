@@ -109,12 +109,19 @@ class ProtocolSummarySerializer(serializers.ModelSerializer):
 class GroupSerializer(serializers.ModelSerializer):
     members = serializers.SerializerMethodField(source="get_members", read_only=True)
     pdf_template = serializers.FileField(required=False, allow_null=True)
+    # Zwei Felder, die zusammengehoeren: short_name ist das gepflegte
+    # Kuerzel und darf leer sein, short_label ist das, was angezeigt wird -
+    # notfalls aus dem Namen abgeleitet. So bleibt "nichts eingetragen"
+    # unterscheidbar von einer bewussten Eingabe.
+    short_label = serializers.CharField(read_only=True)
 
     class Meta:
         model = Group
         fields = [
             "id",
             "name",
+            "short_name",
+            "short_label",
             "address",
             "postalcode",
             "city",

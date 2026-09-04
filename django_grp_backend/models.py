@@ -109,6 +109,16 @@ class ProtocolManager(models.Manager):
 
 class Group(models.Model):
     name = models.CharField(max_length=100)
+    short_name = models.CharField(
+        max_length=8,
+        blank=True,
+        default="",
+        verbose_name="Kürzel",
+        help_text=(
+            "Zwei bis vier Zeichen für Plaketten und enge Listen, etwa „6a“. "
+            "Leer lassen: dann wird es aus dem Namen abgeleitet."
+        ),
+    )
     address = models.CharField(max_length=100)
     postalcode = models.CharField(max_length=10)
     city = models.CharField(max_length=100)
@@ -120,6 +130,37 @@ class Group(models.Model):
 
     def get_full_address(self):
         return f"{self.address},\n{self.postalcode}, {self.city}"
+
+    @property
+    def short_label(self) -> str:
+        """
+        Das Kürzel, immer gefüllt.
+
+        Was hier steht, kommt in enge Listen: eine Plakette neben einem Namen
+        hat Platz für zwei bis vier Zeichen. Ist keines gepflegt, wird eines
+        abgeleitet - aber nur zur Anzeige, nicht in die Datenbank. Ein Feld,
+        das sich beim Speichern selbst füllt, lässt sich hinterher nicht mehr
+        von einer bewussten Eingabe unterscheiden.
+
+        Die Ableitung nimmt das letzte Wort, wenn es kurz ist und eine Ziffer
+        enthält - „Campuswohngruppe 6a" heißt im Haus schlicht „6a". Sonst
+        die Anfangsbuchstaben der Wörter, sonst die ersten beiden Zeichen.
+        """
+        if self.short_name.strip():
+            return self.short_name.strip()
+
+        woerter = self.name.split()
+        if not woerter:
+            return "?"
+
+        letztes = woerter[-1]
+        if len(letztes) <= 4 and any(zeichen.isdigit() for zeichen in letztes):
+            return letztes.upper()
+
+        if len(woerter) > 1:
+            return "".join(wort[0] for wort in woerter[:3]).upper()
+
+        return self.name[:2].upper()
 
     def __str__(self):
         return self.name

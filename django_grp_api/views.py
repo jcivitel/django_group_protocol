@@ -53,9 +53,12 @@ class LoginView(APIView):
     """
     Token-based login endpoint for Flutter and other clients.
 
+    Im Feld "username" wird auch eine E-Mail-Adresse angenommen - siehe
+    django_grp_backend.auth_backends.UsernameOrEmailBackend.
+
     POST /api/v1/auth/login/
     {
-        "username": "string",
+        "username": "string (Benutzername oder E-Mail)",
         "password": "string"
     }
 
@@ -83,7 +86,10 @@ class LoginView(APIView):
 
         if not username or not password:
             return Response(
-                {"success": False, "error": "Username and password are required"},
+                {
+                    "success": False,
+                    "error": "Bitte Benutzername oder E-Mail und Passwort angeben.",
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -110,7 +116,10 @@ class LoginView(APIView):
             )
         else:
             return Response(
-                {"success": False, "error": "Invalid username or password"},
+                {
+                    "success": False,
+                    "error": "Benutzername, E-Mail oder Passwort stimmen nicht.",
+                },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
