@@ -468,25 +468,39 @@ class ItemValuesUpdateView(APIView):
             if item_id == "":
                 item_id = None
 
-            # Fix: Separate CREATE and UPDATE logic
-            # BUG: update_or_create(id=None) doesn't work - it tries to update instead of create
+            felder = {
+                "protocol_id": protocol_id,
+                "name": name,
+                "value": value,
+                "position": position,
+            }
+
+            # kind und data nur uebernehmen, wenn sie mitgeschickt wurden.
+            #
+            # Sie fehlten hier ganz - und damit ging jede Tabelle verloren.
+            # Wer aus dem Menue "Eintrag hinzufuegen" eine Aufgabenliste oder
+            # einen Massnahmenplan waehlte und speicherte, bekam einen leeren
+            # Freitext zurueck: kind fiel auf die Vorgabe "text", data blieb
+            # null. Beim Bearbeiten einer bestehenden Tabelle war es dasselbe
+            # in still - die Aenderung verschwand, die alte Tabelle kam
+            # wieder.
+            #
+            # Die Pruefung auf validated_data statt auf einen Vorgabewert ist
+            # der Unterschied zwischen "nicht geschickt" und "auf leer
+            # gesetzt". Ein aelterer Client, der beide Felder gar nicht kennt,
+            # darf eine vorhandene Tabelle nicht loeschen; ein neuer, der
+            # ausdruecklich data=null schickt, soll es koennen.
+            geschickt = serializer.validated_data
+            if "kind" in geschickt:
+                felder["kind"] = serializer.data.get("kind")
+            if "data" in geschickt:
+                felder["data"] = serializer.data.get("data")
+
             if item_id:
-                # UPDATE existing item
-                ProtocolItem.objects.filter(id=item_id).update(
-                    protocol_id=protocol_id,
-                    name=name,
-                    value=value,
-                    position=position,
-                )
+                ProtocolItem.objects.filter(id=item_id).update(**felder)
                 message = "Item updated"
             else:
-                # CREATE new item
-                ProtocolItem.objects.create(
-                    protocol_id=protocol_id,
-                    name=name,
-                    value=value,
-                    position=position,
-                )
+                ProtocolItem.objects.create(**felder)
                 message = "Item created"
 
             return Response(
