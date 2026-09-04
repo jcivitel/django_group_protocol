@@ -468,3 +468,85 @@ class FremdeGruppeTestCase(APITestCase):
         self.assertEqual(antwort.status_code, status.HTTP_200_OK)
         ids = [eintrag["id"] for eintrag in antwort.data]
         self.assertNotIn(self.protokoll_fremd.id, ids)
+
+
+class AnmeldungTestCase(APITestCase):
+    """
+    Angemeldet wird sich mit Benutzername oder E-Mail.
+
+    Der interessante Fall ist der mehrdeutige: Djangos User-Modell erzwingt
+    keine eindeutige Adresse. Teilen sich zwei Konten eine, darf keines von
+    beiden angemeldet werden - sonst koennte, wer die Adresse einer Kollegin
+    kennt, sich mit einem eigenen Konto an deren Stelle setzen.
+    """
+
+    def setUp(self):
+        self.person = User.objects.create_user(
+            username="m.mustermann",
+            email="M.Mustermann@Beispiel.de",
+            password="EinGutesPasswort1",
+        )
+
+    def anmelden(self, kennung, passwort="EinGutesPasswort1"):
+        return self.client.post(
+            "/api/v1/auth/login/",
+            {"username": kennung, "password": passwort},
+            format="json",
+        )
+
+    def test_anmeldung_mit_benutzername(self):
+        antwort = self.anmelden("m.mustermann")
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+        self.assertTrue(antwort.data["data"]["token"])
+
+    def test_anmeldung_mit_email(self):
+        antwort = self.anmelden("M.Mustermann@Beispiel.de")
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+        self.assertEqual(antwort.data["data"]["user"]["username"], "m.mustermann")
+
+    def test_email_ohne_ruecksicht_auf_grossschreibung(self):
+        antwort = self.anmelden("m.mustermann@beispiel.DE")
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+
+    def test_falsches_passwort_wird_abgewiesen(self):
+        antwort = self.anmelden("m.mustermann", "falsch")
+        self.assertEqual(antwort.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_unbekannte_adresse_wird_abgewiesen(self):
+        antwort = self.anmelden("gibtesnicht@beispiel.de")
+        self.assertEqual(antwort.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_mehrdeutige_adresse_laesst_niemanden_herein(self):
+        User.objects.create_user(
+            username="zweitkonto",
+            email="m.mustermann@beispiel.de",
+            password="EinAnderesPasswort1",
+        )
+        self.assertEqual(
+            self.anmelden("m.mustermann@beispiel.de").status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+        # Der Benutzername bleibt davon unberuehrt - er ist eindeutig.
+        self.assertEqual(self.anmelden("m.mustermann").status_code, status.HTTP_200_OK)
+
+    def test_benutzername_hat_vorrang_vor_fremder_adresse(self):
+        """
+        Wer ein Konto anlegt, dessen Adresse dem Benutzernamen einer anderen
+        Person gleicht, uebernimmt deren Platz nicht.
+        """
+        User.objects.create_user(
+            username="angreifer",
+            email="m.mustermann",
+            password="EinAnderesPasswort1",
+        )
+        antwort = self.anmelden("m.mustermann")
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+        self.assertEqual(antwort.data["data"]["user"]["username"], "m.mustermann")
+
+    def test_deaktiviertes_konto_kommt_nicht_herein(self):
+        self.person.is_active = False
+        self.person.save()
+        self.assertEqual(
+            self.anmelden("m.mustermann@beispiel.de").status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
