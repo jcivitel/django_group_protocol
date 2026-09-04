@@ -65,7 +65,7 @@ def _abwesenheit_vorher(sender, instance, **kwargs):
 @receiver(post_save, sender="django_grp_duty.Absence")
 @_sicher
 def _abwesenheit_entschieden(sender, instance, created, **kwargs):
-    from .service import einstellen
+    from .service import benachrichtigen
 
     if created or _unveraendert(instance):
         return
@@ -89,11 +89,14 @@ def _abwesenheit_entschieden(sender, instance, created, **kwargs):
         zeilen.append(f"Hinweis:  {instance.decision_note}")
     zeilen += ["", "Der Dienstplan ist entsprechend angepasst.", ""]
 
-    einstellen(
-        to=empfaenger,
+    benachrichtigen(
+        instance.employee,
         subject=f"Antrag {entschieden}: {instance.absence_type}",
         body="\n".join(zeilen),
         kind="absence_decided",
+        # Auf einem Sperrbildschirm steht der Anlass, nicht der Inhalt.
+        push_text=f"Dein Antrag wurde {entschieden}.",
+        push_url="/meine-dienste",
     )
 
 
@@ -113,7 +116,7 @@ def _plan_veroeffentlicht(sender, instance, created, **kwargs):
     Beim Wechsel auf "veroeffentlicht" bekommt jede eingeteilte Person ihre
     eigenen Dienste - nicht den ganzen Plan.
     """
-    from .service import einstellen
+    from .service import benachrichtigen
 
     if created or instance.status != "published" or _unveraendert(instance):
         return
@@ -147,14 +150,16 @@ def _plan_veroeffentlicht(sender, instance, created, **kwargs):
             )
         zeilen.append("")
 
-        einstellen(
-            to=empfaenger,
+        benachrichtigen(
+            person,
             subject=(
                 f"Dienstplan {instance.month:02d}/{instance.year} "
                 f"veröffentlicht — {len(dienste)} Dienste"
             ),
             body="\n".join(zeilen),
             kind="plan_published",
+            push_text=f"{len(dienste)} Dienste für dich eingeteilt.",
+            push_url="/meine-dienste",
         )
 
 
@@ -176,7 +181,7 @@ def _tausch_bewegt(sender, instance, created, **kwargs):
     Benachrichtigt wird jeweils die Seite, die gerade nichts getan hat - wer
     selbst geklickt hat, weiss es schon.
     """
-    from .service import einstellen
+    from .service import benachrichtigen
 
     if not created and _unveraendert(instance):
         return
@@ -200,8 +205,10 @@ def _tausch_bewegt(sender, instance, created, **kwargs):
         if instance.reason:
             zeilen.append(f"Grund: {instance.reason}")
         zeilen += ["", "Unter „Diensttausch“ kannst du zusagen oder ablehnen.", ""]
-        einstellen(
-            to=_adresse(uebernehmer),
+        benachrichtigen(
+            uebernehmer,
+            push_text="Dir wird ein Dienst angeboten.",
+            push_url="/meine-dienste",
             subject=f"Diensttausch angefragt: {dienst}",
             body="\n".join(zeilen),
             kind="swap",
@@ -210,8 +217,10 @@ def _tausch_bewegt(sender, instance, created, **kwargs):
 
     if instance.status == "accepted" and _adresse(anbieter):
         wer = uebernehmer.get_full_name() if uebernehmer else "Jemand"
-        einstellen(
-            to=_adresse(anbieter),
+        benachrichtigen(
+            anbieter,
+            push_text="Dein Tauschangebot wurde angenommen.",
+            push_url="/meine-dienste",
             subject=f"Diensttausch angenommen: {dienst}",
             body="\n".join(
                 [
@@ -239,8 +248,10 @@ def _tausch_bewegt(sender, instance, created, **kwargs):
         ):
             if person is None or not _adresse(person):
                 continue
-            einstellen(
-                to=_adresse(person),
+            benachrichtigen(
+                person,
+                push_text="Ein Diensttausch wurde bestätigt.",
+                push_url="/meine-dienste",
                 subject=f"Diensttausch bestätigt: {dienst}",
                 body="\n".join(
                     [
@@ -263,8 +274,10 @@ def _tausch_bewegt(sender, instance, created, **kwargs):
         if empfaenger is None or not _adresse(empfaenger):
             return
         wort = "abgelehnt" if instance.status == "declined" else "zurückgezogen"
-        einstellen(
-            to=_adresse(empfaenger),
+        benachrichtigen(
+            empfaenger,
+            push_text=f"Ein Diensttausch wurde {wort}.",
+            push_url="/meine-dienste",
             subject=f"Diensttausch {wort}: {dienst}",
             body="\n".join(
                 [

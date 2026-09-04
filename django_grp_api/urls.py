@@ -112,6 +112,9 @@ urlpatterns = [
     path("v1/mail/settings/", mail_api.MailSettingsView.as_view(), name="mail-settings"),
     path("v1/mail/test/", mail_api.MailTestView.as_view(), name="mail-test"),
     path("v1/mail/outbox/", mail_api.MailOutboxView.as_view(), name="mail-outbox"),
+    path("v1/push/subscribe/", mail_api.PushSubscribeView.as_view(), name="push-subscribe"),
+    path("v1/push/test/", mail_api.PushTestView.as_view(), name="push-test"),
+    path("v1/push/keys/", mail_api.PushKeysView.as_view(), name="push-keys"),
     path(
         "v1/mail/outbox/<int:message_id>/retry/",
         mail_api.MailRetryView.as_view(),

@@ -66,6 +66,26 @@ class MailSettings(models.Model):
         verbose_name="Versand aktiv",
         help_text="Aus heisst: Mails werden im Postausgang festgehalten, aber nicht verschickt",
     )
+
+    # --- Push. Steht hier und nicht in einem eigenen Modell: es ist
+    # dieselbe Frage - wie erreicht die Anwendung jemanden -, nur ein
+    # anderer Weg. Zwei Einstellungsseiten fuer eine Frage waeren eine
+    # zu viel.
+    push_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Push aktiv",
+        help_text="Benachrichtigungen auf Telefon und Rechner, zusätzlich zur E-Mail",
+    )
+    vapid_public_key = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Öffentlicher Schlüssel",
+        help_text="Wird an den Browser gegeben – kein Geheimnis",
+    )
+    vapid_private_key_encrypted = models.TextField(
+        blank=True, default="", editable=False
+    )
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -106,6 +126,22 @@ class MailSettings(models.Model):
     def ready(self) -> bool:
         """Reicht das zum Verschicken?"""
         return bool(self.enabled and self.host and self.from_address)
+
+    @property
+    def vapid_private_key(self) -> str:
+        return entschluesseln(self.vapid_private_key_encrypted)
+
+    @vapid_private_key.setter
+    def vapid_private_key(self, klartext: str) -> None:
+        self.vapid_private_key_encrypted = verschluesseln(klartext)
+
+    @property
+    def has_vapid_keys(self) -> bool:
+        return bool(self.vapid_public_key and self.vapid_private_key_encrypted)
+
+    @property
+    def push_ready(self) -> bool:
+        return bool(self.push_enabled and self.has_vapid_keys)
 
 
 class MailMessage(models.Model):
@@ -151,3 +187,46 @@ class MailMessage(models.Model):
 
     def __str__(self) -> str:
         return f"{self.to_address}: {self.subject}"
+
+
+class PushSubscription(models.Model):
+    """
+    Ein Geraet, das Benachrichtigungen empfangen will.
+
+    Mehrere je Person sind der Normalfall: Diensthandy und privates Telefon,
+    dazu der Rechner im Buero. Der endpoint ist die Adresse beim Push-Dienst
+    des Browserherstellers und zugleich der Schluessel - dasselbe Geraet
+    meldet sich mit derselben Adresse wieder an, statt eine zweite Zeile
+    anzulegen.
+
+    Die beiden Schluessel sind keine Geheimnisse im ueblichen Sinn: sie
+    gehoeren zu genau diesem Geraet und taugen nur dafuer, ihm etwas zu
+    schicken. Sie stehen deshalb im Klartext.
+    """
+
+    user = models.ForeignKey(
+        "auth.User",
+        on_delete=models.CASCADE,
+        related_name="push_subscriptions",
+        verbose_name="Konto",
+    )
+    endpoint = models.TextField(unique=True, verbose_name="Adresse")
+    p256dh = models.CharField(max_length=200)
+    auth = models.CharField(max_length=100)
+    user_agent = models.CharField(
+        max_length=250,
+        blank=True,
+        default="",
+        verbose_name="Gerät",
+        help_text="Damit man in der Liste erkennt, welches Gerät gemeint ist",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Push-Anmeldung"
+        verbose_name_plural = "Push-Anmeldungen"
+
+    def __str__(self) -> str:
+        return f"{self.user} – {self.user_agent or self.endpoint[:40]}"
