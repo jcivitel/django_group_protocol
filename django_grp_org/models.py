@@ -222,6 +222,47 @@ class Qualification(models.Model):
         return self.name
 
 
+class Holiday(models.Model):
+    """
+    Ein Feiertag im Kalender des Traegers.
+
+    Warum das in der Datenbank steht und nicht nur gerechnet wird: die
+    Rechnung kennt die gesetzlichen Tage, nicht die des Hauses. Heiligabend
+    ist kein Feiertag und trotzdem vielerorts ein halber Arbeitstag; manche
+    Traeger geben Rosenmontag frei. Was hier steht, gilt - der Rechenweg in
+    holidays.py fuellt es nur vor.
+
+    `factor` sagt, wie viel Arbeitstag uebrig bleibt: 0 an einem ganzen
+    Feiertag, 0.5 an Heiligabend. Damit kommt die Sollstundenrechnung ohne
+    Sonderfaelle aus, und ein halber Tag ist kein eigener Datentyp.
+    """
+
+    provider = fk(Provider, related_name="holidays", verbose_name="Träger")
+    date = models.DateField(verbose_name="Datum")
+    name = models.CharField(max_length=100, verbose_name="Anlass")
+    factor = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        verbose_name="Verbleibender Arbeitstag",
+        help_text="0 = ganzer Feiertag, 0,5 = halber Tag (etwa Heiligabend)",
+    )
+    note = models.CharField(max_length=200, blank=True, default="")
+
+    class Meta:
+        unique_together = ("provider", "date")
+        ordering = ["date"]
+        verbose_name = "Feiertag"
+        verbose_name_plural = "Feiertage"
+
+    def __str__(self) -> str:
+        return f"{self.date:%d.%m.%Y} {self.name}"
+
+    @property
+    def is_half_day(self) -> bool:
+        return Decimal("0") < self.factor < Decimal("1")
+
+
 class WorkTimeModel(models.Model):
     """Arbeitszeitmodell - Grundlage fuer Soll-Stunden und Zeitkonten."""
 
