@@ -4,11 +4,20 @@ Nachvollziehbarkeit sensibler Änderungen.
 Roadmap Phase 1 verlangt „Event-Logging bei sensiblen Stammdatenänderungen",
 Phase 9 „Logging, Monitoring und Fehlerbehandlung im Produktivbetrieb".
 
-Protokolliert werden Personaldaten, Verträge, Rollen, Stellenbesetzungen und
-die Fallführung - also alles, wo eine spätere Frage „wer hat das wann
-geändert" berechtigt ist. Fachdaten des Alltags (Protokolleinträge,
-Zeitbuchungen) bleiben außen vor; die stünden sonst zu Tausenden im Log und
-sind über ihre eigenen Zeitstempel nachvollziehbar.
+Protokolliert werden Personaldaten, Verträge, Rollen, Stellenbesetzungen, die
+Fallführung - und die Gruppendokumentation selbst: Protokolle, ihre
+Tagesordnung, Aufgaben, Verlaufseinträge und Anwesenheiten.
+
+Letztere standen lange nicht auf dieser Liste, und das war der schwerste
+Fehler darin. Das Protokoll einer Wohngruppe ist der Kernzweck dieser
+Anwendung und ein rechtlich erhebliches Dokument; wer es nachträglich
+änderte, löschte oder abschloss, hinterließ keine Spur. Nach einem
+vollständigen Arbeitsablauf - Protokoll anlegen, vier Punkte bearbeiten,
+Aufgabe anlegen, Anwesenheit setzen, abschließen, exportieren - stand in der
+Historie kein einziger Eintrag dazu (ARBEITSABLAUF-TEST.md, W2).
+
+Was weiterhin außen vor bleibt: Dienste und Zeitbuchungen. Die entstehen zu
+Tausenden und sind über ihre eigenen Zeitstempel nachvollziehbar.
 
 Der Benutzer kommt aus dem laufenden Request. Dafür hinterlegt eine
 Middleware ihn in einem contextvar - Signale kennen den Request sonst nicht.
@@ -120,18 +129,68 @@ WATCHED = {
     # Konfiguration und Zugriff. UserPermission entscheidet, wer welche
     # Gruppe sehen und ändern darf - bei einer Prüfung die erste Frage.
     "django_grp_backend.Group",
-    "django_grp_backend.UserPermission",
     "django_grp_backend.ProtocolTemplate",
+    # Die Gruppendokumentation. Der eigentliche Zweck der Anwendung - und
+    # bis zuletzt der einzige Bereich, in dem sich alles spurlos aendern
+    # liess, bis hin zum Abschluss und zum Export.
+    "django_grp_backend.Protocol",
+    "django_grp_backend.ProtocolItem",
+    "django_grp_backend.ProtocolTodo",
+    "django_grp_backend.ProtocolObservation",
+    "django_grp_backend.ProtocolAttendance",
+    "django_grp_backend.ProtocolPresence",
 }
 
-# Bewusst NICHT beobachtet: die Fachdaten des Alltags. Protokolleinträge und
-# Aufgaben (ProtocolItem, ProtocolTodo), Dienste und Zeitbuchungen (Shift,
-# TimeEntry, Absence). Sie entstehen zu Tausenden, tragen eigene Zeitstempel
-# und würden das Änderungsprotokoll so voll schreiben, dass die Einträge
-# oben darin nicht mehr zu finden wären.
+# Klartext statt Modellpfad.
 #
-# Wer das ändern will, braucht vorher eine Aufbewahrungsfrist für AuditEvent -
-# heute wächst die Tabelle unbegrenzt.
+# In der Historie stand bisher "django_grp_backend.Resident" - richtig, aber
+# fuer die Person, die dort nachliest, ohne Wert. Die Zuordnung gehoert
+# hierher und nicht ins Frontend: hier steht ohnehin die Liste, welche
+# Modelle beobachtet werden, und beides faellt zusammen auseinander oder
+# gar nicht.
+KLARTEXT = {
+    "django_grp_org.Employee": "Mitarbeitende",
+    "django_grp_org.Contract": "Vertrag",
+    "django_grp_org.Role": "Rolle",
+    "django_grp_org.PositionAssignment": "Stellenbesetzung",
+    "django_grp_org.Position": "Stelle",
+    "django_grp_org.Provider": "Träger",
+    "django_grp_org.Site": "Standort",
+    "django_grp_org.Facility": "Einrichtung",
+    "django_grp_org.Department": "Bereich",
+    "django_grp_org.Qualification": "Qualifikation",
+    "django_grp_org.WorkTimeModel": "Arbeitszeitmodell",
+    "django_grp_org.EmployeeQualification": "Qualifikation einer Person",
+    "django_grp_care.CaseFile": "Fallakte",
+    "django_grp_care.HelpPlan": "Hilfeplan",
+    "django_grp_backend.Resident": "Bewohner",
+    "django_grp_backend.ResidentContact": "Kontakt",
+    "django_grp_backend.Group": "Gruppe",
+    "django_grp_backend.ProtocolTemplate": "Protokollvorlage",
+    "django_grp_backend.Protocol": "Protokoll",
+    "django_grp_backend.ProtocolItem": "Tagesordnungspunkt",
+    "django_grp_backend.ProtocolTodo": "Aufgabe",
+    "django_grp_backend.ProtocolObservation": "Verlaufseintrag",
+    "django_grp_backend.ProtocolAttendance": "Teilnahme",
+    "django_grp_backend.ProtocolPresence": "Anwesenheit",
+}
+
+
+def klartext(pfad: str) -> str:
+    """Lesbarer Name zu einem Modellpfad - notfalls der Klassenname."""
+    if pfad in KLARTEXT:
+        return KLARTEXT[pfad]
+    return pfad.rsplit(".", 1)[-1]
+
+# Bewusst NICHT beobachtet: Dienste und Zeitbuchungen (Shift, TimeEntry,
+# Absence). Sie entstehen zu Tausenden, tragen eigene Zeitstempel und würden
+# das Änderungsprotokoll so voll schreiben, dass die Einträge oben darin
+# nicht mehr zu finden wären.
+#
+# Die Aufbewahrungsfrist ist die Bedingung dafür, dass die Protokolldomäne
+# überhaupt aufgenommen werden konnte: AUDIT_RETENTION_DAYS, umgesetzt in
+# django_grp_org/tasks.py, räumt ältere Einträge weg. Ohne sie wüchse die
+# Tabelle unbegrenzt.
 
 IGNORED_FIELDS = {"id", "created_at", "updated_at"}
 

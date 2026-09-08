@@ -14,7 +14,6 @@ from django_grp_backend.models import (
     Resident,
     ResidentContact,
     ProtocolPresence,
-    UserPermission,
 )
 
 
@@ -420,8 +419,17 @@ class ProtocolPresenceSerializer(serializers.ModelSerializer):
         fields = ["id", "protocol", "user", "user_name", "was_present"]
 
     def get_user_name(self, obj):
-        """Get full name of the user."""
-        return f"{obj.user.first_name} {obj.user.last_name}"
+        """
+        Anzeigename der Person.
+
+        Vorher stand hier stur "{Vorname} {Nachname}". Beim Konto aus dem
+        Einrichtungsassistenten sind beide leer, das Ergebnis war ein
+        einzelnes Leerzeichen - und im Protokoll und im PDF stand
+        "Benutzer #1". Der Benutzername ist kein schoener Name, aber ein
+        echter.
+        """
+        name = f"{obj.user.first_name} {obj.user.last_name}".strip()
+        return name or obj.user.get_username()
 
 
 class GroupPDFTemplateSerializer(serializers.ModelSerializer):
@@ -433,36 +441,11 @@ class GroupPDFTemplateSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "name"]
 
 
-class UserPermissionSerializer(serializers.ModelSerializer):
-    """Serializer for user permissions on specific resources."""
-
-    resource_display = serializers.CharField(
-        source="get_resource_display", read_only=True
-    )
-    permission_display = serializers.CharField(
-        source="get_permission_display", read_only=True
-    )
-
-    class Meta:
-        model = UserPermission
-        fields = [
-            "id",
-            "user",
-            "group",
-            "resource",
-            "resource_display",
-            "permission",
-            "permission_display",
-            "created_at",
-        ]
-        read_only_fields = ["id", "created_at"]
-
-
 class UserDetailSerializer(serializers.ModelSerializer):
     """Serializer for detailed user information with permissions."""
 
     groups = serializers.SerializerMethodField()
-    permissions = serializers.SerializerMethodField()
+    access_level = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -477,7 +460,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
             "is_active",
             "date_joined",
             "groups",
-            "permissions",
+            "access_level",
         ]
         read_only_fields = [
             "id",
@@ -493,10 +476,16 @@ class UserDetailSerializer(serializers.ModelSerializer):
             for group in Group.objects.filter(group_members=obj)
         ]
 
-    def get_permissions(self, obj):
-        """Get all permissions for this user."""
-        perms = UserPermission.objects.filter(user=obj)
-        return UserPermissionSerializer(perms, many=True).data
+    def get_access_level(self, obj):
+        """
+        Die Zugriffsstufe des Kontos.
+
+        Hier stand frueher die feingranulare Rechteliste (UserPermission).
+        Sie wurde von keinem einzigen Endpunkt ausgewertet - wer in der
+        Oberflaeche jemanden auf "nur lesen" stellte, aenderte damit nichts.
+        Was wirklich gilt, steht in django_grp_backend/access.py.
+        """
+        return access_level(obj)
 
 
 class UserStaffSerializer(serializers.ModelSerializer):
