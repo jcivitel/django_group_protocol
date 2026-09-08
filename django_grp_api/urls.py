@@ -189,6 +189,10 @@ urlpatterns = [
     path("v1/payroll/", duty_api.PayrollExportView.as_view(), name="payroll"),
     # Ohne Anmeldung, damit Monitoring-Systeme sie abfragen koennen.
     path("health/", org_api.HealthView.as_view(), name="health"),
+    # Getrennt, weil die Antworten verschiedene Folgen haben: livez
+    # entscheidet ueber einen Neustart, readyz ueber den Lastverteiler.
+    path("livez/", org_api.LivenessView.as_view(), name="livez"),
+    path("readyz/", org_api.ReadinessView.as_view(), name="readyz"),
     path(
         "v1/help-plan/<int:plan_id>/continue/",
         care_api.HelpPlanContinueView.as_view(),

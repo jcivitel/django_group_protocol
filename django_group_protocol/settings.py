@@ -430,6 +430,15 @@ CELERY_BROKER_CONNECTION_TIMEOUT = 3
 # die Fachdaten.
 AUDIT_RETENTION_DAYS = config("AUDIT_RETENTION_DAYS", default=1095, cast=int)
 
+# Traegertrennung scharf stellen.
+#
+# Ohne diesen Schalter sehen Konten OHNE Personaldatensatz weiterhin alles -
+# bewusst, damit bestehende Verwaltungskonten nach einem Update nicht vor
+# einer leeren Anwendung stehen. Sobald jedem Konto ein Employee mit Traeger
+# zugeordnet ist, gehoert der Schalter auf True: dann sieht ein Konto ohne
+# Zuordnung nichts mehr (Superuser ausgenommen).
+STRICT_TENANCY = config("STRICT_TENANCY", default=False, cast=bool)
+
 CELERY_BEAT_SCHEDULE = {
     "aenderungsprotokoll-aufraeumen": {
         "task": "django_grp_org.aufraeumen_aenderungsprotokoll",

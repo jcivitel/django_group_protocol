@@ -2,7 +2,6 @@ import os
 import random
 import uuid
 
-from PIL import Image
 from django.contrib.auth.models import User
 from django.db import models
 from django.db.models.signals import post_save
@@ -10,6 +9,7 @@ from django.dispatch import receiver
 from django.utils.deconstruct import deconstructible
 
 from django_grp_backend.access import is_admin
+from django_grp_backend.bilder import einplanen
 from django_grp_backend.functions import validate_image
 
 # db_constraint=False ist entfallen.
@@ -27,13 +27,55 @@ from django_grp_backend.functions import validate_image
 # ============ CUSTOM QUERYSETS ============
 
 
+def traeger_filter(user):
+    """
+    Traegergrenze fuer Gruppen - als Q-Objekt.
+
+    Gruppen haengen ueber `Department.group` an der Organisationsstruktur:
+    Bereich -> Einrichtung -> Standort -> Traeger. Wer einen Personaldatensatz
+    hat, soll nur die Gruppen seines Traegers sehen; das galt in `org`, `duty`
+    und `care` laengst, in der Kern-App aber nicht - ein Verwaltungskonto sah
+    jede Gruppe jedes Traegers (Analyse 6.4).
+
+    Zwei Faelle bleiben ausdruecklich offen:
+
+    - Gruppen OHNE Bereichsverknuepfung. Die gibt es in jedem gewachsenen
+      Bestand, und sie ploetzlich verschwinden zu lassen hiesse, die
+      Anwendung nach einem Update leer aussehen zu lassen.
+    - Konten ohne Personaldatensatz. Solange nicht jedes Konto einem Traeger
+      zugeordnet ist, waere die Trennung eine Aussperrung. STRICT_TENANCY
+      schaltet auch das scharf, sobald der Bestand so weit ist.
+
+    Der Import steht in der Funktion: django_grp_backend darf
+    django_grp_org nicht zur Ladezeit brauchen - sonst schliesst sich der
+    Ring zwischen den beiden Apps.
+    """
+    from django.conf import settings
+    from django_grp_org.tenancy import visible_provider_ids
+
+    provider_ids = visible_provider_ids(user)
+    if provider_ids is None:
+        if getattr(settings, "STRICT_TENANCY", False) and not getattr(
+            user, "is_superuser", False
+        ):
+            # Kein Personaldatensatz, kein Traeger, keine Gruppen.
+            return models.Q(pk__in=[])
+        return models.Q()
+
+    return models.Q(
+        departments__facility__site__provider_id__in=provider_ids
+    ) | models.Q(departments__isnull=True)
+
+
 class GroupQuerySet(models.QuerySet):
     """Custom QuerySet for Group model."""
 
     def for_user(self, user):
         """Gruppen, die das Konto sehen darf."""
         if is_admin(user):
-            return self
+            # Auch die Verwaltung sieht nur den eigenen Traeger. "Alles" hiess
+            # hier bisher woertlich alles - ueber Traegergrenzen hinweg.
+            return self.filter(traeger_filter(user)).distinct()
         return self.filter(group_members=user)
 
 
@@ -43,7 +85,9 @@ class ResidentQuerySet(models.QuerySet):
     def for_user(self, user):
         """Bewohner der Gruppen, die das Konto sehen darf."""
         if is_admin(user):
-            return self
+            return self.filter(
+                group__in=Group.objects.for_user(user)
+            ).distinct()
         return self.filter(group__group_members=user)
 
     def active(self):
@@ -57,7 +101,9 @@ class ProtocolQuerySet(models.QuerySet):
     def for_user(self, user):
         """Protokolle der Gruppen, die das Konto sehen darf."""
         if is_admin(user):
-            return self
+            return self.filter(
+                group__in=Group.objects.for_user(user)
+            ).distinct()
         return self.filter(group__group_members=user)
 
     def current_month(self):
@@ -214,13 +260,17 @@ class Resident(models.Model):
         return f"{self.first_name} {self.last_name}"
 
     def save(self, *args, **kwargs):
+        """
+        Speichern, das Verkleinern des Fotos danach.
+
+        Vorher stand hier `Image.open(...).thumbnail(...).save(...)` mitten im
+        Request: die Fachkraft, die ein Foto hochlaedt, wartete auf das
+        Dekodieren und Zurueckschreiben eines Mehrmegabyte-Bildes. Jetzt
+        uebernimmt das Celery, und faellt der Broker aus, passiert es wie
+        bisher direkt - nur eben als bewusster Rueckfall.
+        """
         super().save(*args, **kwargs)
-        if self.picture:
-            img = Image.open(self.picture.path)
-            if img.height > 800 or img.width > 800:
-                output_size = (800, 800)
-                img.thumbnail(output_size)
-                img.save(self.picture.path)
+        einplanen(self.picture)
 
     def __str__(self):
         return self.get_full_name()
