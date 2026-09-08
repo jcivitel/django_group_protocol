@@ -38,7 +38,7 @@ from decimal import Decimal
 from django_grp_org.models import Employee
 
 from .models import Absence, Shift, ShiftPreference, StaffingRequirement
-from .rules import MIN_REST_HOURS
+from .rules import MAX_CONSECUTIVE_DAYS, MIN_REST_HOURS, serie_um
 from .services import ruhezeit, target_hours_for_month
 
 # Wie weit ueber das Monatssoll hinaus noch eingeteilt wird, bevor jemand
@@ -213,11 +213,16 @@ def autofill_plan(plan, *, overwrite: bool = False) -> dict:
     # Belegung, waehrend der Durchlauf laeuft. Auch Dienste ausserhalb dieses
     # Plans zaehlen mit: wer im Nachbarbereich Nachtdienst hat, kann hier
     # nicht gleichzeitig stehen.
+    #
+    # Das Fenster reicht so weit, wie eine Serie lang sein darf. Mit einem
+    # Tag Rand - so war es - sieht der Automat die Ruhezeit, aber nicht, dass
+    # jemand die letzten sechs Tage des Vormonats schon durchgearbeitet hat.
+    rand = timedelta(days=MAX_CONSECUTIVE_DAYS)
     belegt: dict[int, list] = defaultdict(list)
     for fremd in (
         Shift.objects.filter(
-            date__gte=von - timedelta(days=1),
-            date__lte=bis + timedelta(days=1),
+            date__gte=von - rand,
+            date__lte=bis + rand,
             employee__isnull=False,
         )
         .select_related("shift_type")
@@ -316,8 +321,9 @@ def autofill_plan(plan, *, overwrite: bool = False) -> dict:
     if bilanz.still_open:
         bilanz.notes.append(
             f"{bilanz.still_open} Dienste blieben offen. Meist fehlt es an "
-            "Ruhezeit oder alle infrage kommenden Personen sind an dem Tag "
-            "schon eingeteilt."
+            "Ruhezeit, alle infrage kommenden Personen sind an dem Tag schon "
+            f"eingeteilt, oder sie stünden sonst mehr als "
+            f"{MAX_CONSECUTIVE_DAYS} Tage am Stück im Dienst."
         )
 
     return bilanz.as_dict()
@@ -366,6 +372,19 @@ def _bewerten(
             return False, "", 0
         if timedelta(0) <= pause < timedelta(hours=MIN_REST_HOURS):
             return False, "", 0
+
+    # Nach spaetestens sechs Tagen ein freier Tag (§ 11 Abs. 3 ArbZG).
+    #
+    # Der Automat kannte diese Regel gar nicht - er pruefte Ruhezeit und
+    # Doppelbelegung, und teilte eine Person ohne Weiteres sieben Tage am
+    # Stueck ein. Die Regelpruefung meldete das hinterher; hinterher ist
+    # aber der falsche Zeitpunkt, wenn ein Automat den Plan gebaut hat.
+    #
+    # serie_um zaehlt in beide Richtungen: ein einzelner Tag zwischen zwei
+    # Serien verbindet sie, und der faellt sonst durch.
+    tage = {anderer.date for anderer in belegt.get(person.id, ())}
+    if serie_um(tage, dienst.date) > MAX_CONSECUTIVE_DAYS:
+        return False, "", 0
 
     # --- Punkte
 
