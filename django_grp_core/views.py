@@ -1,14 +1,26 @@
+"""
+Einrichtung und Betriebszustand.
+
+Zwei Endpunkte, mehr nicht: den Zustand abfragen und das erste Konto anlegen.
+Die HTML-Vorlagen (setup_wizard.html, info.html) und die Ansichten dazu sind
+entfallen - durch die Einrichtung fuehrt der Assistent im Frontend.
+"""
+
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.http import HttpResponse
-from django.views.generic import TemplateView
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
-from django.core.management import call_command
 from rest_framework.authtoken.models import Token
+
+import logging
+
+logger = logging.getLogger("django_grp.core")
 
 
 class SetupStatusView(APIView):
@@ -80,10 +92,11 @@ class SetupStatusView(APIView):
                 },
                 status=status.HTTP_200_OK
             )
-        except Exception as e:
+        except Exception as fehler:  # noqa: BLE001
+            logger.exception("Zustand der Einrichtung: %s", fehler)
             return Response(
-                {"error": str(e), "status": "error"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": "Der Zustand ließ sich nicht ermitteln.", "status": "error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
@@ -116,7 +129,9 @@ class SetupWizardView(APIView):
     - Public (no authentication required), but only works if no superuser exists
     """
     permission_classes = [AllowAny]
-    
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "passwort"
+
     def post(self, request):
         """Create superuser and run migrations."""
         try:
@@ -146,12 +161,23 @@ class SetupWizardView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            if len(password) < 8:
+            # Dieselben Regeln wie ueberall sonst in Django
+            # (AUTH_PASSWORD_VALIDATORS) - vorher pruefte dieser Weg nur die
+            # Laenge, und das erste Konto der Anwendung war damit das am
+            # schwaechsten geschuetzte.
+            try:
+                validate_password(password)
+            except DjangoValidationError as fehler:
                 return Response(
-                    {"error": "Password must be at least 8 characters long."},
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"error": " ".join(fehler.messages)},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-            
+
+            executor = MigrationExecutor(connection)
+            has_pending = bool(
+                executor.migration_plan(executor.loader.graph.leaf_nodes())
+            )
+
             if User.objects.filter(username=username).exists():
                 return Response(
                     {"error": f"Username '{username}' already exists."},
@@ -164,15 +190,23 @@ class SetupWizardView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Run pending migrations first
-            try:
-                call_command('migrate', verbosity=0)
-            except Exception as e:
+            # Migrationen laufen beim Start des Containers (entry.sh), nicht
+            # hier. Ein `migrate` aus einem Web-Request heraus haelt die
+            # Anfrage minutenlang offen, laeuft ohne Sperre womoeglich
+            # mehrfach parallel und braucht Rechte, die eine Web-Anwendung
+            # nicht haben sollte (S12).
+            if has_pending:
                 return Response(
-                    {"error": f"Migration failed: {str(e)}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    {
+                        "error": (
+                            "Die Datenbank ist nicht auf dem neuesten Stand. "
+                            "Bitte zuerst die Migrationen ausführen "
+                            "(python manage.py migrate)."
+                        )
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
-            
+
             # Create superuser
             superuser = User.objects.create_superuser(
                 username=username,
@@ -198,82 +232,9 @@ class SetupWizardView(APIView):
                 status=status.HTTP_201_CREATED
             )
         
-        except Exception as e:
+        except Exception as fehler:  # noqa: BLE001
+            logger.exception("Einrichtung fehlgeschlagen: %s", fehler)
             return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": "Die Einrichtung ist fehlgeschlagen."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-
-class SetupRedirectView(TemplateView):
-    """
-    Redirect or display setup page based on initialization status.
-    
-    GET /
-    
-    - If system not initialized: Display setup wizard form
-    - If system initialized: Display info page
-    
-    Access Control:
-    - Public (no authentication required)
-    """
-    permission_classes = [AllowAny]
-    template_name = 'setup.html'
-    
-    def get(self, request, *args, **kwargs):
-        """Determine which template to show based on status."""
-        try:
-            # Check if superuser exists
-            superuser_exists = User.objects.filter(is_superuser=True).exists()
-            
-            # Check for pending migrations
-            executor = MigrationExecutor(connection)
-            pending_migrations = executor.migration_plan(executor.loader.graph.leaf_nodes())
-            has_pending = len(pending_migrations) > 0
-            
-            # Determine which template to render
-            if not superuser_exists or has_pending:
-                self.template_name = 'setup_wizard.html'
-            else:
-                self.template_name = 'info.html'
-            
-            # Pass context data
-            context = self.get_context_data(**kwargs)
-            context['superuser_exists'] = superuser_exists
-            context['migrations_pending'] = has_pending
-            context['api_url'] = request.build_absolute_uri('/api/')
-            
-            return super().render_to_response(context)
-        
-        except Exception as e:
-            return HttpResponse(f"<h1>Error</h1><p>{str(e)}</p>", status=500)
-
-
-class InfoView(TemplateView):
-    """
-    Display system information and API documentation.
-    
-    GET /info/
-    
-    Shows system status, available endpoints, and links to documentation.
-    
-    Access Control:
-    - Public (no authentication required)
-    """
-    permission_classes = [AllowAny]
-    template_name = 'info.html'
-    
-    def get_context_data(self, **kwargs):
-        """Add context data for the template."""
-        context = super().get_context_data(**kwargs)
-        context['api_url'] = self.request.build_absolute_uri('/api/')
-        context['admin_url'] = self.request.build_absolute_uri('/admin/')
-        try:
-            context['superuser_exists'] = User.objects.filter(is_superuser=True).exists()
-            executor = MigrationExecutor(connection)
-            pending_migrations = executor.migration_plan(executor.loader.graph.leaf_nodes())
-            context['migrations_pending'] = len(pending_migrations) > 0
-        except Exception:
-            context['superuser_exists'] = True
-            context['migrations_pending'] = False
-        return context

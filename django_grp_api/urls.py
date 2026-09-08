@@ -1,4 +1,4 @@
-from django.urls import path, include
+from django.urls import path, include, re_path
 from rest_framework import routers
 from rest_framework_nested import routers as nested_routers
 
@@ -8,6 +8,7 @@ from django_grp_mail import api as mail_api
 from django_grp_org import api as org_api
 
 from . import views
+from .media import MediaView
 from .views import (
     ProtocolPresenceUpdateView,
     ItemValuesUpdateView,
@@ -22,6 +23,7 @@ from .views import (
     GroupPDFTemplateView,
     ProtocolPresenceListView,
     ProtocolExportedFileView,
+    ProtocolReopenView,
     AdminUserListView,
     AdminUserDetailView,
     AdminUserGroupView,
@@ -221,9 +223,24 @@ urlpatterns = [
         ProtocolExportedFileView.as_view(),
         name="protocol-exported-file",
     ),
+    path(
+        "v1/protocol/<int:protocol_id>/reopen/",
+        ProtocolReopenView.as_view(),
+        name="protocol-reopen",
+    ),
     path("v1/presence/", ProtocolPresenceUpdateView.as_view(), name="update-presence"),
     path("v1/item/", ItemValuesUpdateView.as_view(), name="update-item"),
+    # Bilddrehen laeuft ueber die Bewohnernummer, nicht mehr ueber einen
+    # Dateipfad aus dem Rumpf (S5). Die alte Adresse bleibt bestehen, verlangt
+    # aber ebenfalls resident_id.
+    path(
+        "v1/resident/<int:resident_id>/rotate/",
+        RotateImageView.as_view(),
+        name="resident-rotate-picture",
+    ),
     path("v1/rotate_image/", RotateImageView.as_view(), name="rotate_image"),
+    # Medien: authentifiziert und objektbezogen statt offen (S4).
+    re_path(r"^v1/media/(?P<path>.+)$", MediaView.as_view(), name="media"),
     path(
         "v1/mentions/", MentionAutocompleteView.as_view(), name="mention-autocomplete"
     ),

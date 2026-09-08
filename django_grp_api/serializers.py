@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 
+from django_grp_backend.access import ADMIN, SPECIALIST, access_level
 from django_grp_backend.models import (
     Protocol,
     ProtocolAttendance,
@@ -15,6 +16,33 @@ from django_grp_backend.models import (
     ProtocolPresence,
     UserPermission,
 )
+
+
+class EigeneGruppeMixin:
+    """
+    Bindet ein schreibbares `group`-Feld an die Gruppen des Kontos.
+
+    Ohne das laesst sich ein Protokoll oder ein Bewohner beim Anlegen einer
+    fremden Gruppe zuordnen - die Nummer steht im Rumpf der Anfrage, und
+    niemand hat sie geprueft. Das ViewSet filtert nur, was es HERAUSgibt
+    (get_queryset), nicht was hineingeschrieben wird. Genau diese Luecke
+    waren S1 und S2 der Analyse.
+
+    Die Pruefung sitzt im Serializer und nicht im View, weil sie damit fuer
+    jeden Weg gilt: anlegen, aendern, Sammelimport.
+    """
+
+    def validate_group(self, group):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not getattr(user, "is_authenticated", False):
+            raise serializers.ValidationError("Nicht angemeldet.")
+
+        if not Group.objects.for_user(user).filter(id=group.id).exists():
+            raise serializers.ValidationError(
+                "Diese Gruppe steht dir nicht offen."
+            )
+        return group
 
 
 class ProtocolItemSerializer(serializers.ModelSerializer):
@@ -43,7 +71,7 @@ class ProtocolTodoSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at", "protocol"]
 
 
-class ProtocolSerializer(serializers.ModelSerializer):
+class ProtocolSerializer(EigeneGruppeMixin, serializers.ModelSerializer):
     items = ProtocolItemSerializer(many=True, required=False)
     exported_file = serializers.SerializerMethodField()
 
@@ -60,15 +88,6 @@ class ProtocolSerializer(serializers.ModelSerializer):
             "template",
             "topic",
         ]
-
-    def to_representation(self, instance):
-        """Override to handle both real and demo objects."""
-        # Ensure pk is set for serialization
-        if not hasattr(instance, "_state"):
-            # Demo object - add minimal _state to make it compatible
-            instance._state = type("State", (), {"db": None})()
-
-        return super().to_representation(instance)
 
     def get_exported_file(self, obj):
         """Return full URL for exported file if available."""
@@ -130,22 +149,19 @@ class GroupSerializer(serializers.ModelSerializer):
             "color",
         ]
 
-    def to_representation(self, instance):
-        """Override to handle both real and demo objects."""
-        # Ensure pk is set for serialization
-        if not hasattr(instance, "_state"):
-            # Demo object - add minimal _state to make it compatible
-            instance._state = type("State", (), {"db": None})()
-
-        return super().to_representation(instance)
-
     def get_members(self, obj):
-        """Get residents in this group."""
+        """
+        Bewohner dieser Gruppe.
+
+        Ueber die Rueckbeziehung statt ueber eine eigene Abfrage: das ViewSet
+        laedt sie mit prefetch_related("resident_set") vor, und damit kostet
+        die Liste eine Abfrage statt einer je Gruppe (Analyse 6.7, N+1).
+        """
         try:
-            residents = Resident.objects.filter(group=obj.id)
-            return ResidentSerializer(residents, many=True, context=self.context).data
+            return ResidentSerializer(
+                obj.resident_set.all(), many=True, context=self.context
+            ).data
         except (AttributeError, TypeError):
-            # If it fails, return empty list
             return []
 
     def update(self, instance, validated_data):
@@ -160,7 +176,7 @@ class GroupSerializer(serializers.ModelSerializer):
         return instance
 
 
-class ResidentSerializer(serializers.ModelSerializer):
+class ResidentSerializer(EigeneGruppeMixin, serializers.ModelSerializer):
     picture = serializers.SerializerMethodField()
 
     class Meta:
@@ -229,15 +245,6 @@ class ResidentPictureUploadSerializer(serializers.ModelSerializer):
         fields = ["id", "picture"]
         read_only_fields = ["id"]
 
-    def to_representation(self, instance):
-        """Override to handle both real and demo objects."""
-        # Ensure pk is set for serialization
-        if not hasattr(instance, "_state"):
-            # Demo object - add minimal _state to make it compatible
-            instance._state = type("State", (), {"db": None})()
-
-        return super().to_representation(instance)
-
     def get_picture(self, obj):
         """Return full URL for resident picture if available."""
         try:
@@ -283,6 +290,29 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "is_superuser",
         ]
 
+    def validate_email(self, email):
+        """
+        Eine E-Mail-Adresse gehoert genau einem Konto.
+
+        Django setzt das nicht durch, angemeldet wird sich hier aber wahlweise
+        mit Benutzername ODER E-Mail (UsernameOrEmailBackend). Trugen zwei
+        Konten dieselbe Adresse, lehnte das Backend die Anmeldung wegen
+        Mehrdeutigkeit ab - wer die Adresse einer anderen Person eintrug,
+        sperrte sie damit aus (S11).
+        """
+        email = (email or "").strip()
+        if not email:
+            return email
+
+        vergeben = User.objects.filter(email__iexact=email)
+        if self.instance is not None:
+            vergeben = vergeben.exclude(pk=self.instance.pk)
+        if vergeben.exists():
+            raise serializers.ValidationError(
+                "Diese E-Mail-Adresse gehoert bereits zu einem anderen Konto."
+            )
+        return email
+
     def get_groups(self, obj):
         """Get groups the user is member of."""
         return [group.name for group in Group.objects.filter(group_members=obj)]
@@ -307,21 +337,34 @@ class UserGroupPermissionSerializer(serializers.ModelSerializer):
         ]
 
     def get_permissions(self, obj):
-        """Get user permissions for this group."""
+        """
+        Was dieses Konto in dieser Gruppe darf.
+
+        Frueher stand hier `can_edit = is_member or is_staff` - die Stufe
+        "Aushilfe / Azubi" kam schlicht nicht vor. Das Frontend zeigte
+        Bearbeiten-Knoepfe, die serverseitig in ein 403 liefen. Jetzt
+        antwortet diese Stelle mit derselben Regel, die auch durchgesetzt
+        wird: access_level plus Mitgliedschaft.
+        """
         request = self.context.get("request")
         if not request:
             return {}
 
         user = request.user
         is_member = obj.group_members.filter(id=user.id).exists()
-        is_staff = user.is_staff
+        stufe = access_level(user)
+        darf_verwalten = stufe == ADMIN or bool(getattr(user, "is_superuser", False))
+        darf_schreiben = darf_verwalten or (stufe == SPECIALIST and is_member)
 
         return {
             "is_member": is_member,
-            "is_staff": is_staff,
-            "can_view": is_member or is_staff,
-            "can_edit": is_member or is_staff,
-            "can_delete": is_staff,
+            "is_staff": darf_verwalten,
+            "access_level": stufe,
+            "can_view": is_member or darf_verwalten,
+            "can_edit": darf_schreiben,
+            # Loeschen kaskadiert auf Bewohner UND Protokolle. Das bleibt
+            # der Verwaltung vorbehalten.
+            "can_delete": darf_verwalten,
         }
 
     def get_resident_count(self, obj):
@@ -575,6 +618,16 @@ class ProtocolAttendanceSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "protocol"]
 
+    def validate_resident(self, resident):
+        """
+        Nur Bewohner der Gruppe, um die es geht.
+
+        `resident` kommt als Nummer aus dem Rumpf; ohne diese Pruefung liesse
+        sich eine fremde Bewohnerin als Teilnehmerin eintragen - und ihr Name
+        stuende danach in einem Protokoll, das sie nichts angeht.
+        """
+        return _resident_der_protokollgruppe(self, resident)
+
     def get_resident_name(self, obj):
         return obj.resident.get_full_name()
 
@@ -614,5 +667,36 @@ class ProtocolObservationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "protocol", "created_at", "updated_at"]
 
+    def validate_resident(self, resident):
+        """Wie bei der Teilnahme: kein Verlaufseintrag zu fremden Bewohnern."""
+        if resident is None:
+            return resident
+        return _resident_der_protokollgruppe(self, resident)
+
     def get_resident_name(self, obj):
         return obj.resident.get_full_name() if obj.resident else None
+
+
+def _resident_der_protokollgruppe(serializer, resident):
+    """
+    Prueft, dass ein Bewohner zur Gruppe des Protokolls gehoert.
+
+    Das Protokoll steht in der URL, nicht im Rumpf - das ViewSet legt es als
+    `protocol` im Context ab (siehe ProtocolScopedViewSet.get_serializer_context).
+    Fehlt es, bleibt als Rueckfallebene die Sichtbarkeit fuer das Konto.
+    """
+    request = serializer.context.get("request")
+    user = getattr(request, "user", None)
+    protocol = serializer.context.get("protocol")
+
+    if protocol is not None:
+        if resident.group_id != protocol.group_id:
+            raise serializers.ValidationError(
+                "Diese Person gehoert nicht zur Gruppe dieses Protokolls."
+            )
+        return resident
+
+    if user is not None and getattr(user, "is_authenticated", False):
+        if not Resident.objects.for_user(user).filter(id=resident.id).exists():
+            raise serializers.ValidationError("Diese Person steht dir nicht offen.")
+    return resident
