@@ -262,6 +262,21 @@ class MedienTestCase(ZweiGruppenMixin, APITestCase):
             (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND),
         )
 
+    def test_absoluter_pfad_scheitert(self):
+        """
+        os.path.join(wurzel, "/etc/passwd") ergibt "/etc/passwd".
+
+        Der erste Teil faellt weg - ein absoluter Pfad haette den Anker in
+        MEDIA_ROOT damit einfach uebersprungen.
+        """
+        for pfad in ("/etc/passwd", "C:/Windows/win.ini"):
+            with self.subTest(pfad=pfad):
+                antwort = self.client.get(f"/api/v1/media/{pfad}")
+                self.assertIn(
+                    antwort.status_code,
+                    (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND),
+                )
+
 
 class BilddrehenTestCase(ZweiGruppenMixin, APITestCase):
     """S5: kein Dateipfad aus dem Rumpf mehr."""

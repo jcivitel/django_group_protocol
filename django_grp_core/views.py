@@ -208,10 +208,17 @@ class SetupWizardView(APIView):
                 )
 
             # Create superuser
+            #
+            # Vor- und Nachname sind optional, werden aber uebernommen: ohne
+            # sie zeigt die Anwendung ueberall den Benutzernamen - in der
+            # Anwesenheitsliste, im Protokoll, im PDF. Genau das war das
+            # "Benutzer #1" aus dem Arbeitsablauf-Test.
             superuser = User.objects.create_superuser(
                 username=username,
                 email=email,
-                password=password
+                password=password,
+                first_name=(request.data.get("first_name") or "").strip()[:150],
+                last_name=(request.data.get("last_name") or "").strip()[:150],
             )
             
             # Create auth token for the new superuser

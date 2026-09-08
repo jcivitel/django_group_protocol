@@ -17,6 +17,7 @@ Datei in MEDIA_ROOT ist kein Grund, sie herauszugeben.
 
 import logging
 import mimetypes
+import ntpath
 import os
 
 from django.conf import settings
@@ -86,11 +87,28 @@ class MediaView(APIView):
 
     def get(self, request, path: str):
         wurzel = os.path.realpath(settings.MEDIA_ROOT)
+
+        # Absolute Pfade gar nicht erst annehmen.
+        #
+        # os.path.join(wurzel, "/etc/passwd") ergibt "/etc/passwd" - der erste
+        # Teil faellt weg. Unter Windows kommt "C:/Windows/..." dazu, und dann
+        # wirft commonpath unten sogar, weil die Laufwerke sich unterscheiden.
+        # Beides faengt diese Zeile ab, bevor es zaehlt.
+        if os.path.isabs(path) or ntpath.isabs(path):
+            logger.warning("Medienzugriff mit absolutem Pfad: %s", path)
+            raise NotFound("Datei nicht gefunden.")
+
         ziel = os.path.realpath(os.path.join(wurzel, path))
 
         # Erst den Pfad festnageln, dann alles Weitere. "../" darf nicht aus
         # MEDIA_ROOT herausfuehren, auch nicht ueber einen Symlink.
-        if os.path.commonpath([ziel, wurzel]) != wurzel:
+        try:
+            innerhalb = os.path.commonpath([ziel, wurzel]) == wurzel
+        except ValueError:
+            # Verschiedene Laufwerke - dann liegt es ganz sicher nicht darin.
+            innerhalb = False
+
+        if not innerhalb:
             logger.warning("Medienzugriff ausserhalb von MEDIA_ROOT: %s", path)
             raise NotFound("Datei nicht gefunden.")
 
