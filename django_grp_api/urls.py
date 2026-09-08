@@ -9,6 +9,7 @@ from django_grp_org import api as org_api
 
 from . import views
 from .media import MediaView
+from .passwort import PasswortNeuView, PasswortVergessenView
 from .views import (
     ProtocolPresenceUpdateView,
     ItemValuesUpdateView,
@@ -111,6 +112,16 @@ duty_router.register(r"shift", duty_api.ShiftViewSet, basename="duty-shift")
 
 urlpatterns = [
     path("v1/auth/login/", LoginView.as_view(), name="auth-login"),
+    path(
+        "v1/auth/passwort-vergessen/",
+        PasswortVergessenView.as_view(),
+        name="auth-passwort-vergessen",
+    ),
+    path(
+        "v1/auth/passwort-neu/",
+        PasswortNeuView.as_view(),
+        name="auth-passwort-neu",
+    ),
     path("v1/mail/settings/", mail_api.MailSettingsView.as_view(), name="mail-settings"),
     path("v1/mail/test/", mail_api.MailTestView.as_view(), name="mail-test"),
     path("v1/mail/outbox/", mail_api.MailOutboxView.as_view(), name="mail-outbox"),

@@ -1,0 +1,97 @@
+# Prüft, was vor jedem Zusammenführen stimmen muss.
+#
+# Vier Schritte, in der Reihenfolge, in der sie am schnellsten scheitern:
+# Abhängigkeiten, Systemprüfung, Betriebsprüfung, Tests.
+#
+# Die Betriebsprüfung (check --deploy) läuft mit einem echten Schlüssel und
+# HTTPS=True — also so, wie die Anwendung im Betrieb konfiguriert ist. Sonst
+# meldet sie fünf Warnungen, die niemand ernst nimmt, und die eine, die neu
+# dazukommt, geht darin unter.
+
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  pruefen:
+    name: Prüfungen und Tests
+    runs-on: ubuntu-latest
+
+    services:
+      db:
+        image: mariadb:11.8
+        env:
+          MARIADB_DATABASE: grp-proto
+          MARIADB_USER: grp-proto
+          MARIADB_PASSWORD: grp-proto
+          MARIADB_ROOT_PASSWORD: root-nur-fuer-ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      # 64 Zeichen, damit die Schlüsselprüfung in settings.py zufrieden ist.
+      # Ein Wert nur für diesen Lauf — er verschlüsselt hier nichts, was
+      # jemand später wieder lesen muss.
+      SECRET_KEY: ci-lauf-schluessel-ohne-bedeutung-0123456789-abcdefghij
+      DEBUG: "False"
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      MAIN_DATABASE_ENGINE: django.db.backends.mysql
+      MAIN_DATABASE_NAME: grp-proto
+      MAIN_DATABASE_USER: grp-proto
+      MAIN_DATABASE_PASSWD: grp-proto
+      MAIN_DATABASE_HOST: 127.0.0.1
+      MAIN_DATABASE_PORT: "3306"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Systempakete für mysqlclient
+        run: sudo apt-get update && sudo apt-get install -y default-libmysqlclient-dev build-essential pkg-config
+
+      - name: Abhängigkeiten
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Rechte für die Testdatenbank
+        # `manage.py test` legt "test_grp-proto" an; das Konto der Anwendung
+        # darf das von Haus aus nicht. Im Compose erledigt das db-init/, hier
+        # der Einzeiler.
+        run: |
+          mysql -h 127.0.0.1 -u root -proot-nur-fuer-ci \
+            -e "GRANT ALL PRIVILEGES ON \`test\_grp-proto\`.* TO 'grp-proto'@'%'; FLUSH PRIVILEGES;"
+
+      - name: Systemprüfung
+        run: python manage.py check
+
+      - name: Betriebsprüfung
+        env:
+          HTTPS: "True"
+          # Nur für diese Prüfung. Ob eine Adresse wirklich in die
+          # Preload-Liste der Browser gehört, ist eine Entscheidung des
+          # Betriebs und nicht der CI — sie lässt sich praktisch nicht
+          # zurücknehmen. Hier steht sie, damit `--fail-level WARNING`
+          # nicht an dieser einen, bewusst offenen Frage hängen bleibt.
+          SECURE_HSTS_PRELOAD: "True"
+        run: python manage.py check --deploy --fail-level WARNING
+
+      - name: Fehlende Migrationen?
+        # Ein geändertes Modell ohne Migration fällt sonst erst beim
+        # Ausrollen auf — dann, wenn die Datenbank schon läuft.
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Tests
+        run: python manage.py test --verbosity 2
