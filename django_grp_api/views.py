@@ -1161,54 +1161,6 @@ class ProtocolExportedFileView(APIView):
         )
 
 
-class ProtocolReopenView(APIView):
-    """
-    Ein abgeschlossenes Protokoll wieder in Bearbeitung nehmen.
-
-    POST /api/v1/protocol/{id}/reopen/
-
-    Bis hierhin war der Export eine Einbahnstrasse: ein Klick, und die
-    Dokumentation eines Abends liess sich ueber die Oberflaeche nie wieder
-    berichtigen - auch nicht, wenn jemand den falschen Knopf getroffen hatte.
-    Fuer eine Fachdokumentation ist das die falsche Haerte; richtig ist:
-    oeffnen darf nur die Verwaltung, und es steht im Aenderungsprotokoll.
-
-    Die exportierte Datei bleibt liegen. Sie ist der Beleg dafuer, was
-    einmal abgeschlossen war.
-    """
-
-    permission_classes = [IsAuthenticated, WriteNeedsRole]
-
-    def post(self, request, protocol_id: int):
-        protocol = protokoll_fuer(request.user, protocol_id)
-
-        if not is_admin(request.user):
-            raise PermissionDenied(
-                "Ein abgeschlossenes Protokoll wieder zu öffnen ist der "
-                "Verwaltung vorbehalten."
-            )
-
-        if protocol.status != "exported":
-            return Response(
-                {"error": "Dieses Protokoll ist nicht abgeschlossen."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        protocol.status = "ready"
-        protocol.exported = False
-        protocol.save(update_fields=["status", "exported"])
-
-        return Response(
-            {
-                "success": True,
-                "id": protocol.id,
-                "status": protocol.status,
-                "message": "Das Protokoll steht wieder zur Bearbeitung offen.",
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
 class ProtocolPresenceListView(APIView):
     """
     Anwesenheitszeilen eines Protokolls.

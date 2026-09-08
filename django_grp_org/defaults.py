@@ -115,6 +115,46 @@ def ensure_qualifications(Qualification) -> int:
     return created
 
 
+# Abwesenheitsarten.
+#
+# Sie standen bisher nur im Kommandozeilen-Werkzeug seed_organisation - der
+# Einrichtungsassistent legte Arbeitszeitmodelle und Dienstarten an, diese
+# hier nicht. Folge: nach der Einrichtung ueber die Oberflaeche war die Liste
+# leer, und "Abwesenheit beantragen" blieb dauerhaft ausgegraut, ohne dass
+# irgendwo stand, warum.
+#
+# Die Spalten: Name, Art, ob es Urlaub abzieht, ob es genehmigt werden muss,
+# Farbe im Jahresraster.
+DEFAULT_ABSENCE_TYPES = [
+    ("Urlaub", "vacation", True, True, "#abc270"),
+    # Krankheit zieht keinen Urlaub ab und wartet auf keine Genehmigung -
+    # wer krank ist, ist krank.
+    ("Krankheit", "sick", False, False, "#a63d18"),
+    ("Kind krank", "sick", False, False, "#c4552d"),
+    ("Fortbildung", "training", False, True, "#fda769"),
+    ("Sonderurlaub", "special", False, True, "#fec868"),
+    ("Unbezahlt", "unpaid", False, True, "#8a7c6f"),
+]
+
+
+def ensure_absence_types(AbsenceType, provider) -> int:
+    """Legt fehlende Abwesenheitsarten für einen Träger an."""
+    created = 0
+    for name, kind, reduces, approval, color in DEFAULT_ABSENCE_TYPES:
+        _, made = AbsenceType.objects.get_or_create(
+            provider=provider,
+            name=name,
+            defaults={
+                "kind": kind,
+                "reduces_vacation": reduces,
+                "requires_approval": approval,
+                "color": color,
+            },
+        )
+        created += int(made)
+    return created
+
+
 def ensure_worktime_models(WorkTimeModel, provider) -> int:
     """Legt fehlende Arbeitszeitmodelle für einen Träger an."""
     created = 0

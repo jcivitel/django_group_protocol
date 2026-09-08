@@ -42,8 +42,9 @@ class OrganisationSetupView(APIView):
 
     def post(self, request):
         from django_grp_backend.models import Group
-        from django_grp_duty.models import ShiftType
+        from django_grp_duty.models import AbsenceType, ShiftType
         from django_grp_org.defaults import (
+            ensure_absence_types,
             ensure_shift_types,
             ensure_worktime_models,
         )
@@ -136,6 +137,12 @@ class OrganisationSetupView(APIView):
                 ensure_worktime_models(WorkTimeModel, provider)
                 # Ohne Dienstart erzeugt spaeter kein Dienstplan Dienste.
                 ensure_shift_types(ShiftType, provider)
+                # Ohne Abwesenheitsart laesst sich keine Abwesenheit
+                # beantragen - der Knopf dafuer bleibt ausgegraut, und zwar
+                # ohne dass irgendwo stuende, warum. Das stand bisher nur im
+                # Kommandozeilen-Werkzeug seed_organisation und fehlte
+                # ausgerechnet auf dem Weg, den alle nehmen.
+                ensure_absence_types(AbsenceType, provider)
 
                 # Der einrichtenden Person einen Personaldatensatz geben,
                 # falls sie noch keinen hat. Ohne ihn taucht das eigene

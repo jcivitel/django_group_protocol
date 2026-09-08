@@ -25,7 +25,6 @@ from .views import (
     ProtocolPresenceListView,
     TodoCollectionView,
     ProtocolExportedFileView,
-    ProtocolReopenView,
     AdminUserListView,
     AdminUserDetailView,
     AdminUserGroupView,
@@ -237,11 +236,6 @@ urlpatterns = [
         "v1/protocol/<int:protocol_id>/exported_file/",
         ProtocolExportedFileView.as_view(),
         name="protocol-exported-file",
-    ),
-    path(
-        "v1/protocol/<int:protocol_id>/reopen/",
-        ProtocolReopenView.as_view(),
-        name="protocol-reopen",
     ),
     path("v1/presence/", ProtocolPresenceUpdateView.as_view(), name="update-presence"),
     # Sammelabfrage statt Faecher: siehe TodoCollectionView.
