@@ -87,6 +87,12 @@ class ProtocolSerializer(EigeneGruppeMixin, serializers.ModelSerializer):
             "template",
             "topic",
         ]
+        # `exported` ist eine Folge des Status, keine Eingabe. Schreibbar
+        # liess sich ein Entwurf als exportiert kennzeichnen, ohne dass die
+        # Sperre gegriffen haette - die prueft `status`. Zwei Felder, die
+        # dasselbe meinen und auseinanderlaufen koennen, sind eine Luecke,
+        # auch wenn sie erst der uebernaechste Codepfad aufreisst.
+        read_only_fields = ["exported"]
 
     def get_exported_file(self, obj):
         """Return full URL for exported file if available."""

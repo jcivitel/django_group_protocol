@@ -29,9 +29,10 @@
 >
 > **Der Export bestätigt sich ausdrücklich.**
 > `POST /api/v1/protocol/{id}/exported_file/` braucht zusätzlich
-> `confirm=true` und nimmt nur PDF an. Neu in der Gegenrichtung:
-> `POST /api/v1/protocol/{id}/reopen/` nimmt ein abgeschlossenes Protokoll
-> wieder in Bearbeitung (nur Verwaltung).
+> `confirm=true` und nimmt nur PDF an. Eine Gegenrichtung gibt es bewusst
+> nicht: ein exportiertes Protokoll ist abgeschlossen und bleibt es. Der
+> Schutz vor dem versehentlichen Abschluss sitzt deshalb davor, in der
+> Bestätigung.
 >
 > **Der Schreibschutz antwortet einheitlich** mit `403` und
 > `{"detail": "Exportierte Protokolle können nicht bearbeitet werden."}` —

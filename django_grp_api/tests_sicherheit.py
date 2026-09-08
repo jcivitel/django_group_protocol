@@ -220,6 +220,95 @@ class SchreibschutzTestCase(ZweiGruppenMixin, APITestCase):
         )
         self.assertEqual(antwort.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_status_laesst_sich_nicht_zurueckdrehen(self):
+        """
+        Abgeschlossen heißt abgeschlossen - auch über die Schnittstelle.
+
+        Die Oberfläche bietet dafür keinen Knopf mehr. Das allein wäre aber
+        nur eine versteckte Sperre: wer den Aufruf kennt, kommt daran vorbei.
+        Deshalb hier, gegen die API.
+        """
+        for ziel in ("draft", "ready"):
+            with self.subTest(status=ziel):
+                antwort = self.client.patch(
+                    f"/api/v1/protocol/{self.protokoll.id}/",
+                    {"status": ziel},
+                    format="json",
+                )
+                self.assertEqual(antwort.status_code, status.HTTP_403_FORBIDDEN)
+                self.protokoll.refresh_from_db()
+                self.assertEqual(self.protokoll.status, "exported")
+
+    def test_exportiert_kennzeichen_folgt_dem_status(self):
+        """
+        `exported` und `status` koennen nicht auseinanderlaufen.
+
+        Das Modell fuehrt zwei Felder fuer denselben Sachverhalt - `exported`
+        ist aelter als die Statuskette. Geprueft wird `status`; waere
+        `exported` von aussen setzbar, liesse sich ein Entwurf als exportiert
+        kennzeichnen, ohne dass die Sperre greift. Jetzt folgt es dem Status,
+        und die Schnittstelle nimmt es gar nicht mehr entgegen.
+        """
+        self.protokoll.refresh_from_db()
+        self.assertTrue(self.protokoll.exported)
+
+        entwurf = Protocol.objects.create(
+            protocol_date=date(2026, 9, 10), group=self.eigene, status="draft"
+        )
+        antwort = self.client.patch(
+            f"/api/v1/protocol/{entwurf.id}/",
+            {"exported": True},
+            format="json",
+        )
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+        entwurf.refresh_from_db()
+        self.assertFalse(entwurf.exported)
+        self.assertEqual(entwurf.status, "draft")
+
+    def test_kein_endpunkt_zum_wiederoeffnen(self):
+        """Es gab einen; er ist entfernt, und das soll so bleiben."""
+        antwort = self.client.post(f"/api/v1/protocol/{self.protokoll.id}/reopen/")
+        self.assertEqual(antwort.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_auch_die_verwaltung_kommt_nicht_daran_vorbei(self):
+        """
+        Kein Sonderweg für Mitarbeitende.
+
+        Ein Schutz, den die Verwaltung mit einem Aufruf aufheben kann, ist
+        eine Empfehlung und keine Sperre.
+        """
+        chef = User.objects.create_user(
+            username="chef",
+            password="EinGutesPasswort1",
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.client.force_authenticate(user=chef)
+
+        antwort = self.client.patch(
+            f"/api/v1/protocol/{self.protokoll.id}/",
+            {"status": "draft"},
+            format="json",
+        )
+        self.assertEqual(antwort.status_code, status.HTTP_403_FORBIDDEN)
+        self.protokoll.refresh_from_db()
+        self.assertEqual(self.protokoll.status, "exported")
+
+    def test_abgeschlossenes_protokoll_laesst_sich_nicht_loeschen(self):
+        """Löschen wäre die gründlichste Art, ein Dokument zu ändern."""
+        antwort = self.client.delete(f"/api/v1/protocol/{self.protokoll.id}/")
+        self.assertEqual(antwort.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Protocol.objects.filter(id=self.protokoll.id).exists())
+
+    def test_zweiter_export_wird_abgewiesen(self):
+        """Sonst ließe sich die abgelegte Datei still gegen eine andere tauschen."""
+        antwort = self.client.post(
+            f"/api/v1/protocol/{self.protokoll.id}/exported_file/",
+            {"confirm": "true"},
+            format="multipart",
+        )
+        self.assertEqual(antwort.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_meldung_ist_ueberall_dieselbe(self):
         antworten = [
             self.client.patch(

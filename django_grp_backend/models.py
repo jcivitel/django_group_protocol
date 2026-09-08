@@ -389,6 +389,12 @@ class Protocol(models.Model):
     last_updated = models.DateField(auto_now=True)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="draft")
+    # Abgeleitet aus status, siehe save(). Das Feld ist aelter als die
+    # Statuskette und meint dasselbe wie status == "exported"; zwei Felder
+    # fuer denselben Sachverhalt gehen frueher oder spaeter auseinander, und
+    # dann glaubt die eine Haelfte des Codes das eine und die andere das
+    # andere. Es bleibt bestehen, weil Auswertungen und Filter darauf
+    # zeigen - aber es wird nicht mehr von aussen gesetzt.
     exported = models.BooleanField(default=False)
     exported_file = models.FileField(upload_to="exports/", blank=True, null=True)
     template = models.ForeignKey(
@@ -415,6 +421,27 @@ class Protocol(models.Model):
         ordering = ["-protocol_date", "-id"]
         verbose_name = "Protokoll"
         verbose_name_plural = "Protokolle"
+
+    def save(self, *args, **kwargs):
+        """
+        Haelt `exported` und `status` zusammen.
+
+        Es gibt genau eine Wahrheit darueber, ob ein Protokoll abgeschlossen
+        ist, und die steht in `status`. `exported` folgt ihr - hier, an einer
+        Stelle, statt an jedem Aufrufer.
+        """
+        self.exported = self.status == "exported"
+
+        # update_fields nachziehen: sonst wird die Angleichung still
+        # verworfen, wenn jemand gezielt nur `status` speichert.
+        felder = kwargs.get("update_fields")
+        if felder is not None:
+            felder = set(felder)
+            if "status" in felder:
+                felder.add("exported")
+            kwargs["update_fields"] = felder
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.group.name} - {self.protocol_date}"
