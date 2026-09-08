@@ -163,6 +163,7 @@ class MailMessage(models.Model):
         ("plan_published", "Dienstplan veröffentlicht"),
         ("swap", "Diensttausch"),
         ("todo_due", "Aufgabe wird fällig"),
+        ("password_reset", "Passwort zurücksetzen"),
     ]
 
     to_address = models.EmailField(verbose_name="Empfänger")
