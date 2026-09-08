@@ -876,16 +876,60 @@ class AuditEventViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(daten, status=status.HTTP_200_OK)
 
 
+class LivenessView(APIView):
+    """
+    Läuft der Prozess? (GET /api/livez/)
+
+    Antwortet, solange Python antwortet - ohne Datenbank, ohne Migrationen.
+    Genau das braucht ein Orchestrator, um zu entscheiden, ob er den Container
+    NEU STARTEN soll. Eine Datenbank, die gerade wegbleibt, ist kein Grund
+    dafür: der Neustart macht sie nicht zurück, kostet aber die Verbindungen
+    aller, die gerade arbeiten.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def get(self, request):
+        return Response({"status": "ok"}, status=200)
+
+
+class ReadinessView(APIView):
+    """
+    Kann die Anwendung arbeiten? (GET /api/readyz/)
+
+    Hier zählt, was für eine echte Anfrage gebraucht wird: die Datenbank
+    antwortet und die Migrationen sind durch. Antwortet sie mit 503, nimmt
+    der Lastverteiler die Instanz aus dem Verkehr - ohne sie zu töten.
+
+    Der Unterschied zu /livez/ ist der Unterschied zwischen „neu starten"
+    und „kurz nicht fragen". Vorher gab es nur /api/health/, das beides
+    vermischte.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def get(self, request):
+        return HealthView().get(request)
+
+
 class HealthView(APIView):
     """
     Betriebszustand (Roadmap Phase 9).
 
     Ohne Anmeldung erreichbar, damit Monitoring-Systeme sie abfragen können -
     und bewusst ohne Fachdaten: nur, ob Datenbank und Anwendung antworten.
+
+    Bleibt als Sammelauskunft bestehen; für Orchestrierung sind /livez/ und
+    /readyz/ die richtigen Adressen.
     """
 
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = []
 
     def get(self, request):
         from django.db import connection

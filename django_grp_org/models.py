@@ -16,7 +16,8 @@ from decimal import Decimal
 
 from django.contrib.auth.models import User
 from django.db import models
-from PIL import Image
+
+from django_grp_backend.bilder import einplanen
 
 from django_grp_backend.functions import validate_image
 from django_grp_backend.models import RandomizedFileName
@@ -381,14 +382,11 @@ class Employee(models.Model):
         Wie beim Bewohner: das Bild nach dem Speichern auf 800 Pixel bringen.
 
         Ein Portraet aus einer Handykamera hat sonst mehrere Megabyte, und im
-        Dienstplan steht es als Kreis von vierzig Pixeln.
+        Dienstplan steht es als Kreis von vierzig Pixeln. Die Arbeit
+        uebernimmt Celery - siehe django_grp_backend/bilder.py.
         """
         super().save(*args, **kwargs)
-        if self.picture:
-            bild = Image.open(self.picture.path)
-            if bild.height > 800 or bild.width > 800:
-                bild.thumbnail((800, 800))
-                bild.save(self.picture.path)
+        einplanen(self.picture)
 
     def __str__(self) -> str:
         return self.get_full_name()
