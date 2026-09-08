@@ -689,7 +689,14 @@ class RotateImageView(APIView):
         wurzel = os.path.realpath(settings.MEDIA_ROOT)
         # Guertel und Hosentraeger: der Pfad stammt zwar aus der Datenbank,
         # aber ein Datensatz mit "../" im Dateinamen bleibt denkbar.
-        if os.path.commonpath([pfad, wurzel]) != wurzel or not os.path.exists(pfad):
+        try:
+            innerhalb = os.path.commonpath([pfad, wurzel]) == wurzel
+        except ValueError:
+            # Verschiedene Laufwerke - commonpath wirft dann, statt False zu
+            # sagen. Der Fall gehoert in denselben Zweig.
+            innerhalb = False
+
+        if not innerhalb or not os.path.exists(pfad):
             logger.warning("Bilddatei ausserhalb von MEDIA_ROOT: %s", pfad)
             return Response(
                 {"success": False, "error": "Bilddatei nicht gefunden."},
