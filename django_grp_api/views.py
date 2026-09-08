@@ -1,11 +1,14 @@
 import logging
 import os
+from datetime import timedelta
 
 from PIL import Image
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db.models import Q
+from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import viewsets, status
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -28,7 +31,6 @@ from django_grp_backend.models import (
     ProtocolItem,
     ProtocolTemplate,
     ProtocolTodo,
-    UserPermission,
 )
 from .serializers import (
     ProtocolAttendanceSerializer,
@@ -48,7 +50,6 @@ from .serializers import (
     GroupPDFTemplateSerializer,
     UserStaffSerializer,
     UserDetailSerializer,
-    UserPermissionSerializer,
 )
 
 logger = logging.getLogger("django_grp.api")
@@ -355,6 +356,69 @@ class ProtocolTodoViewSet(ProtocolScopedViewSet):
 
     serializer_class = ProtocolTodoSerializer
     model = ProtocolTodo
+
+
+class TodoCollectionView(APIView):
+    """
+    Alle Aufgaben in einem Zeitfenster - ueber alle zugaenglichen Protokolle.
+
+    GET /api/v1/todo/?von=2026-06-01&bis=2026-12-31
+
+    Warum es diesen Endpunkt gibt: die Uebersicht braucht die faelligen
+    Aufgaben aller Gruppen. Ohne Sammelabfrage faechert das Frontend auf und
+    stellt bis zu vierzig Einzelanfragen /protocol/{id}/todo/ - je eine
+    Verbindung, je ein Rundlauf, und alle nur, um am Ende eine Liste zu
+    bauen (Analyse 6.7).
+
+    Der Zeitraum ist Pflicht in dem Sinne, dass es eine Vorgabe gibt: 90 Tage
+    zurueck, 180 nach vorn. Ohne Fenster waere das ein "alles" ueber die
+    gesamte Betriebsdauer.
+    """
+
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
+
+    VORGABE_ZURUECK = 90
+    VORGABE_VORAUS = 180
+
+    def get(self, request):
+        heute = timezone.localdate()
+        von = self._datum(request.query_params.get("von")) or (
+            heute - timedelta(days=self.VORGABE_ZURUECK)
+        )
+        bis = self._datum(request.query_params.get("bis")) or (
+            heute + timedelta(days=self.VORGABE_VORAUS)
+        )
+
+        protokolle = Protocol.objects.for_user(request.user).filter(
+            protocol_date__gte=von, protocol_date__lte=bis
+        )
+
+        aufgaben = (
+            ProtocolTodo.objects.filter(protocol__in=protokolle)
+            .select_related("protocol", "protocol__group")
+            .order_by("when", "position")
+        )
+
+        daten = [
+            {
+                "id": aufgabe.id,
+                "protocol": aufgabe.protocol_id,
+                "protocol_date": aufgabe.protocol.protocol_date,
+                "group": aufgabe.protocol.group_id,
+                "what": aufgabe.what,
+                "who": aufgabe.who,
+                "when": aufgabe.when,
+                "position": aufgabe.position,
+            }
+            for aufgabe in aufgaben
+        ]
+        return Response(daten, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _datum(wert):
+        if not wert:
+            return None
+        return parse_date(wert)
 
 
 class ProtocolAttendanceViewSet(ProtocolScopedViewSet):
@@ -1488,147 +1552,5 @@ class AdminUserGroupView(APIView):
             group.group_members.remove(user)
             serializer = UserDetailSerializer(user, context={"request": request})
             return Response(serializer.data, status=status.HTTP_200_OK)
-        except Exception as fehler:  # noqa: BLE001
-            return serverfehler(self.__class__.__name__, fehler)
-
-
-class AdminUserPermissionView(APIView):
-    """
-    Admin: Manage user resource permissions (read, write, delete).
-
-    GET /api/v1/admin/users/{user_id}/permissions/
-    - List all permissions for user
-
-    POST /api/v1/admin/users/{user_id}/permissions/
-    - Add permission to user
-
-    DELETE /api/v1/admin/users/{user_id}/permissions/{permission_id}/
-    - Remove permission from user
-
-    Permission Request Format:
-    {
-        "group_id": int,
-        "resource": "resident|protocol|group",
-        "permission": "read|write|delete"
-    }
-
-    Access Control:
-    - Staff only (is_staff == true)
-    """
-
-    permission_classes = [IsAuthenticated, WriteNeedsRole]
-
-    def get(self, request, user_id: int):
-        """List user permissions (staff only)."""
-        if not is_admin(request.user):
-            return Response(
-                {"error": "Sie haben keine Berechtigung."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response(
-                {"error": "Benutzer nicht gefunden."}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        try:
-            permissions = UserPermission.objects.filter(user=user)
-            serializer = UserPermissionSerializer(permissions, many=True)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Exception as fehler:  # noqa: BLE001
-            return serverfehler(self.__class__.__name__, fehler)
-
-    def post(self, request, user_id: int):
-        """Add permission to user (staff only)."""
-        if not is_admin(request.user):
-            return Response(
-                {"error": "Sie haben keine Berechtigung."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response(
-                {"error": "Benutzer nicht gefunden."}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        group_id = request.data.get("group_id")
-        resource = request.data.get("resource")
-        permission = request.data.get("permission")
-
-        if not group_id or not resource or not permission:
-            return Response(
-                {"error": "group_id, resource und permission sind erforderlich."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Validate resource and permission
-        valid_resources = ["resident", "protocol", "group"]
-        valid_permissions = ["read", "write", "delete"]
-
-        if resource not in valid_resources:
-            return Response(
-                {"error": f"Ungültige Ressource. Gültig: {', '.join(valid_resources)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if permission not in valid_permissions:
-            return Response(
-                {
-                    "error": f"Ungültige Berechtigung. Gültig: {', '.join(valid_permissions)}"
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            group = Group.objects.get(id=group_id)
-        except Group.DoesNotExist:
-            return Response(
-                {"error": "Gruppe nicht gefunden."}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        try:
-            perm, created = UserPermission.objects.get_or_create(
-                user=user, group=group, resource=resource, permission=permission
-            )
-
-            serializer = UserPermissionSerializer(perm)
-            status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
-            return Response(serializer.data, status=status_code)
-        except Exception as fehler:  # noqa: BLE001
-            return serverfehler(self.__class__.__name__, fehler)
-
-    def delete(self, request, user_id: int, permission_id: int):
-        """Remove permission from user (staff only)."""
-        if not is_admin(request.user):
-            return Response(
-                {"error": "Sie haben keine Berechtigung."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response(
-                {"error": "Benutzer nicht gefunden."}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        try:
-            permission_obj = UserPermission.objects.get(id=permission_id, user=user)
-        except UserPermission.DoesNotExist:
-            return Response(
-                {"error": "Berechtigung nicht gefunden."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        try:
-            permission_obj.delete()
-            return Response(
-                {"message": "Berechtigung erfolgreich gelöscht."},
-                status=status.HTTP_204_NO_CONTENT,
-            )
         except Exception as fehler:  # noqa: BLE001
             return serverfehler(self.__class__.__name__, fehler)

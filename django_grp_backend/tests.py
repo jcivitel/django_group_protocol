@@ -7,6 +7,19 @@ from django_grp_backend.models import Group, Resident, Protocol, ProtocolItem, P
 from datetime import date
 
 
+def eintraege(antwort):
+    """
+    Die Zeilen einer Listenantwort - egal ob seitenweise oder nicht.
+
+    Seit die API paginiert, kommt {count, next, previous, results} statt
+    eines blanken Arrays. Die Tests interessiert nur der Inhalt.
+    """
+    daten = antwort.data
+    if isinstance(daten, dict) and "results" in daten:
+        return daten["results"]
+    return daten
+
+
 class PermissionTestCase(APITestCase):
     """
     Zugriff ohne Anmeldung wird abgewiesen.
@@ -144,8 +157,9 @@ class PermissionTestCase(APITestCase):
         response = self.client.get('/api/v1/protocol/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # User1 should only see protocol1 (in group1)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['id'], self.protocol1.id)
+        zeilen = eintraege(response)
+        self.assertEqual(len(zeilen), 1)
+        self.assertEqual(zeilen[0]['id'], self.protocol1.id)
     
     def test_protocol_detail_unauthenticated(self):
         """Test protocol detail without authentication - should return 401."""
@@ -476,13 +490,13 @@ class FremdeGruppeTestCase(APITestCase):
     def test_liste_zeigt_nur_eigene_gruppe(self):
         antwort = self.client.get("/api/v1/group/")
         self.assertEqual(antwort.status_code, status.HTTP_200_OK)
-        namen = [eintrag["name"] for eintrag in antwort.data]
+        namen = [eintrag["name"] for eintrag in eintraege(antwort)]
         self.assertEqual(namen, ["Eigene Gruppe"])
 
     def test_protokollliste_enthaelt_kein_fremdes(self):
         antwort = self.client.get("/api/v1/protocol/")
         self.assertEqual(antwort.status_code, status.HTTP_200_OK)
-        ids = [eintrag["id"] for eintrag in antwort.data]
+        ids = [eintrag["id"] for eintrag in eintraege(antwort)]
         self.assertNotIn(self.protokoll_fremd.id, ids)
 
 

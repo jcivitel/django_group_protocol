@@ -23,12 +23,12 @@ from .views import (
     ResidentPictureUploadView,
     GroupPDFTemplateView,
     ProtocolPresenceListView,
+    TodoCollectionView,
     ProtocolExportedFileView,
     ProtocolReopenView,
     AdminUserListView,
     AdminUserDetailView,
     AdminUserGroupView,
-    AdminUserPermissionView,
 )
 
 router = routers.DefaultRouter()
@@ -240,6 +240,8 @@ urlpatterns = [
         name="protocol-reopen",
     ),
     path("v1/presence/", ProtocolPresenceUpdateView.as_view(), name="update-presence"),
+    # Sammelabfrage statt Faecher: siehe TodoCollectionView.
+    path("v1/todo/", TodoCollectionView.as_view(), name="todo-collection"),
     path("v1/item/", ItemValuesUpdateView.as_view(), name="update-item"),
     # Bilddrehen laeuft ueber die Bewohnernummer, nicht mehr ueber einen
     # Dateipfad aus dem Rumpf (S5). Die alte Adresse bleibt bestehen, verlangt
@@ -271,15 +273,5 @@ urlpatterns = [
         "v1/admin/users/<int:user_id>/groups/<int:group_id>/",
         AdminUserGroupView.as_view(),
         name="admin-user-group-detail",
-    ),
-    path(
-        "v1/admin/users/<int:user_id>/permissions/",
-        AdminUserPermissionView.as_view(),
-        name="admin-user-permissions",
-    ),
-    path(
-        "v1/admin/users/<int:user_id>/permissions/<int:permission_id>/",
-        AdminUserPermissionView.as_view(),
-        name="admin-user-permission-detail",
     ),
 ]

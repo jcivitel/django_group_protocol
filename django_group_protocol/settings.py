@@ -282,11 +282,29 @@ LOGGING = {
 # fuer die Fehlersuche laesst es sich ueber die .env wieder einschalten.
 API_ALLOW_BASIC_AUTH = config("API_ALLOW_BASIC_AUTH", default=False, cast=bool)
 
-_AUTHENTICATION_CLASSES = ["rest_framework.authentication.TokenAuthentication"]
+# Nicht DRFs TokenAuthentication, sondern die Variante mit Ablaufdatum -
+# siehe django_grp_api/auth.py und TOKEN_MAX_AGE_HOURS.
+_AUTHENTICATION_CLASSES = ["django_grp_api.auth.AblaufendeTokenAuthentication"]
 if API_ALLOW_BASIC_AUTH:
     _AUTHENTICATION_CLASSES.append("rest_framework.authentication.BasicAuthentication")
 
+# Seitenweise ausliefern.
+#
+# Bis hierhin gab es keine Pagination: `GET /api/v1/resident/` lieferte jeden
+# Bewohner, `GET /api/v1/protocol/` jedes Protokoll seit Inbetriebnahme -
+# in einer Antwort, komplett im Speicher. Bei einem Traeger mit ein paar
+# hundert Bewohnern und einigen tausend Protokollen wird daraus eine
+# Uebersichtsseite, die Sekunden braucht.
+#
+# Die Seite ist bewusst gross: der Web-Client holt Listen ueber apiList()
+# und folgt dabei "next", der Rundlauf faellt also kaum ins Gewicht. Die
+# Grenze schuetzt vor der einen Anfrage, die alles auf einmal will.
+API_PAGE_SIZE = config("API_PAGE_SIZE", default=200, cast=int)
+API_PAGE_SIZE_MAX = config("API_PAGE_SIZE_MAX", default=1000, cast=int)
+
 REST_FRAMEWORK = {
+    "DEFAULT_PAGINATION_CLASS": "django_grp_api.pagination.Seitenweise",
+    "PAGE_SIZE": API_PAGE_SIZE,
     "DEFAULT_AUTHENTICATION_CLASSES": _AUTHENTICATION_CLASSES,
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -403,7 +421,21 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {"max_retries": 1}
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_BROKER_CONNECTION_TIMEOUT = 3
 
+# Wie lange das Aenderungsprotokoll aufbewahrt wird (Tage). 0 schaltet das
+# Aufraeumen ab.
+#
+# Die Frist ist die Bedingung dafuer, dass die Protokolldomaene ueberhaupt
+# mitgeschrieben werden kann: ein Protokollabend erzeugt ein Dutzend
+# Eintraege, und ohne Grenze waere die Tabelle in zwei Jahren groesser als
+# die Fachdaten.
+AUDIT_RETENTION_DAYS = config("AUDIT_RETENTION_DAYS", default=1095, cast=int)
+
 CELERY_BEAT_SCHEDULE = {
+    "aenderungsprotokoll-aufraeumen": {
+        "task": "django_grp_org.aufraeumen_aenderungsprotokoll",
+        # Sonntagnacht: da stoert das Loeschen niemanden.
+        "schedule": crontab(hour=3, minute=30, day_of_week=0),
+    },
     "faellige-aufgaben-erinnern": {
         "task": "django_grp_mail.erinnere_an_faellige_aufgaben",
         # Jeden Morgen um sieben - vor dem Fruehdienst, nicht mitten in der
