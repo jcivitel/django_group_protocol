@@ -1,25 +1,28 @@
 from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include, re_path
 from django.views.static import serve
 
 urlpatterns = [
-    # Core setup & info endpoints on root
+    # Einrichtung und Betriebszustand
     path("", include("django_grp_core.urls")),
-    
-    # Admin panel
+    # Django-Verwaltung
     path("admin/", admin.site.urls),
-    
-    # API endpoints
+    # API
     path("api/", include("django_grp_api.urls")),
 ]
 
-# Medien ausliefern. static() macht das nur bei DEBUG, deshalb steht die
-# Route fuer den Containerbetrieb ausgeschrieben da - siehe SERVE_MEDIA.
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-elif settings.SERVE_MEDIA:
+# Medien.
+#
+# Hier stand frueher django.views.static.serve ohne jede Pruefung - und damit
+# waren Bewohnerfotos, Briefboegen und exportierte Protokolle fuer jeden
+# erreichbar, der den Pfad kannte (S4). Der Weg fuer die Anwendung ist jetzt
+# /api/v1/media/<pfad>: dort wird zu jeder Datei der Datensatz gesucht, an dem
+# sie haengt, und gegen das anfragende Konto geprueft.
+#
+# SERVE_MEDIA bleibt als Notausgang fuer die oertliche Entwicklung, ist aber
+# nicht mehr die Vorgabe und im Docker-Compose ausgeschaltet.
+if settings.SERVE_MEDIA:
     urlpatterns += [
         re_path(
             r"^media/(?P<path>.*)$",

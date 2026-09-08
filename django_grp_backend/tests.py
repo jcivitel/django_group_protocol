@@ -1,3 +1,4 @@
+from django.core.cache import cache
 from django.test import TestCase, Client
 from django.contrib.auth.models import User
 from rest_framework.test import APITestCase, APIClient
@@ -31,7 +32,11 @@ class PermissionTestCase(APITestCase):
     def setUp(self):
         """Set up test data."""
         self.client = APIClient()
-        
+        # Der Login ist gedrosselt (10/min). Der Zaehler liegt im Cache und
+        # ueberlebt sonst von einem Test zum naechsten - reihenweise 429
+        # statt der erwarteten Antwort.
+        cache.clear()
+
         # Create test users
         self.user1 = User.objects.create_user(
             username='user1',
@@ -333,66 +338,77 @@ class PermissionTestCase(APITestCase):
         response = self.client.post('/api/v1/auth/logout/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
     
-    # ============ GROUP PARTIAL UPDATE TESTS ============
-    
-    def test_group_partial_update_with_null_fields(self):
-        """Test group partial update - null fields should not overwrite existing values."""
+    # ============ GRUPPEN AENDERN ============
+    #
+    # Zwei Aenderungen gegenueber frueher, beide aus der Analyse:
+    #
+    # 1. Gruppen anlegen, aendern und loeschen ist der Verwaltung
+    #    vorbehalten. Loeschen kaskadiert auf Bewohner UND Protokolle -
+    #    das darf nicht jede Fachkraft ausloesen (Analyse 6.2).
+    # 2. PUT ersetzt, PATCH ergaenzt. Vorher erzwang das ViewSet fuer PUT
+    #    still partial=True, und damit liess sich ein Pflichtfeld
+    #    ueberspringen, ohne dass es auffiel.
+
+    def test_gruppe_aendern_nur_fuer_verwaltung(self):
+        """Eine Fachkraft darf ihre Gruppe lesen, aber nicht umbenennen."""
         self.client.force_authenticate(user=self.user1)
+        response = self.client.patch(
+            f"/api/v1/group/{self.group1.id}/", {"name": "Umbenannt"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.group1.refresh_from_db()
+        self.assertNotEqual(self.group1.name, "Umbenannt")
+
+    def test_gruppe_loeschen_nur_fuer_verwaltung(self):
+        """Loeschen nimmt Bewohner und Protokolle mit - erst recht geschuetzt."""
+        self.client.force_authenticate(user=self.user1)
+        response = self.client.delete(f"/api/v1/group/{self.group1.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Group.objects.filter(id=self.group1.id).exists())
+
+    def test_patch_laesst_andere_felder_stehen(self):
+        """PATCH ergaenzt: was nicht mitkommt, bleibt wie es war."""
+        self.client.force_authenticate(user=self.staff_user)
         original_address = self.group1.address
         original_city = self.group1.city
-        
-        # Update only the name, leaving address and city as null
-        response = self.client.put(f'/api/v1/group/{self.group1.id}/', {
-            'id': self.group1.id,
-            'name': 'Updated Group Name'
-        })
-        
+
+        response = self.client.patch(
+            f"/api/v1/group/{self.group1.id}/", {"name": "Updated Group Name"}
+        )
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.group1.refresh_from_db()
-        self.assertEqual(self.group1.name, 'Updated Group Name')
+        self.assertEqual(self.group1.name, "Updated Group Name")
         self.assertEqual(self.group1.address, original_address)
         self.assertEqual(self.group1.city, original_city)
-    
-    def test_group_partial_update_only_id_required(self):
-        """Test group partial update - only id should be required."""
-        self.client.force_authenticate(user=self.user1)
-        original_data = {
-            'name': self.group1.name,
-            'address': self.group1.address,
-            'postalcode': self.group1.postalcode,
-            'city': self.group1.city,
-            'color': self.group1.color
-        }
-        
-        # Update with only id and one field
-        response = self.client.put(f'/api/v1/group/{self.group1.id}/', {
-            'id': self.group1.id,
-            'color': '#ff0000'
-        })
-        
+
+    def test_patch_mit_einem_feld(self):
+        """Ein einzelnes Feld aendern reicht."""
+        self.client.force_authenticate(user=self.staff_user)
+        vorher = self.group1.name
+
+        response = self.client.patch(
+            f"/api/v1/group/{self.group1.id}/", {"color": "#ff0000"}
+        )
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.group1.refresh_from_db()
-        self.assertEqual(self.group1.color, '#ff0000')
-        self.assertEqual(self.group1.name, original_data['name'])
-        self.assertEqual(self.group1.address, original_data['address'])
-    
-    def test_group_partial_update_multiple_fields(self):
-        """Test group partial update with multiple fields."""
-        self.client.force_authenticate(user=self.user1)
-        original_postalcode = self.group1.postalcode
-        
-        # Update name and city only
-        response = self.client.put(f'/api/v1/group/{self.group1.id}/', {
-            'id': self.group1.id,
-            'name': 'New Group Name',
-            'city': 'New City'
-        })
-        
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.group1.refresh_from_db()
-        self.assertEqual(self.group1.name, 'New Group Name')
-        self.assertEqual(self.group1.city, 'New City')
-        self.assertEqual(self.group1.postalcode, original_postalcode)
+        self.assertEqual(self.group1.color, "#ff0000")
+        self.assertEqual(self.group1.name, vorher)
+
+    def test_put_verlangt_die_pflichtfelder(self):
+        """
+        PUT ersetzt den Datensatz - ohne Namen ist das ein Fehler.
+
+        Genau das ging vorher durch: das ViewSet setzte partial=True auch
+        fuer PUT, und ein unvollstaendiges PUT wurde still als Teiländerung
+        verarbeitet.
+        """
+        self.client.force_authenticate(user=self.staff_user)
+        response = self.client.put(
+            f"/api/v1/group/{self.group1.id}/", {"color": "#00ff00"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class FremdeGruppeTestCase(APITestCase):
@@ -481,6 +497,7 @@ class AnmeldungTestCase(APITestCase):
     """
 
     def setUp(self):
+        cache.clear()
         self.person = User.objects.create_user(
             username="m.mustermann",
             email="M.Mustermann@Beispiel.de",
