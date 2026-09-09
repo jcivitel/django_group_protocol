@@ -754,3 +754,203 @@ def apply_protocol_template(sender, instance, created, **kwargs):
             value=item.value or "",
             data=item.build_data(),
         )
+
+
+class Allergy(models.Model):
+    """
+    Eine Allergie oder Unvertraeglichkeit.
+
+    Steht am Bewohner und nicht in der Fallakte, und das ist der ganze Punkt:
+    eine Allergie, die drei Klicks tief liegt, findet im Nachtdienst niemand.
+    Sie erscheint deshalb in der Kopfzeile der Bewohnerseite, ohne dass man
+    einen Reiter oeffnen muss.
+
+    Eine Diagnose gehoert dagegen NICHT hierher. Sie ist ein Gesundheitsdatum
+    nach Art. 9 DSGVO und gehoert in die Fallakte, wo der Zugriff enger ist.
+    Der Unterschied ist praktisch: die Allergie braucht der Nachtdienst, die
+    Diagnose nicht.
+    """
+
+    KIND_CHOICES = [
+        ("food", "Lebensmittel"),
+        ("medication", "Medikament"),
+        ("insect", "Insektenstich"),
+        ("material", "Material oder Stoff"),
+        ("other", "Sonstiges"),
+    ]
+
+    # Die Schwere entscheidet ueber die Farbe in der Kopfzeile. Nur "severe"
+    # bekommt Terrakotta - eine Warnfarbe, die ueberall steht, ist keine.
+    SEVERITY_CHOICES = [
+        ("mild", "Leicht"),
+        ("moderate", "Mittel"),
+        ("severe", "Schwer"),
+    ]
+
+    resident = models.ForeignKey(
+        Resident,
+        on_delete=models.CASCADE,
+        related_name="allergies",
+        verbose_name="Bewohner:in",
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=KIND_CHOICES,
+        default="food",
+        verbose_name="Art",
+    )
+    name = models.CharField(
+        max_length=120,
+        verbose_name="Bezeichnung",
+        help_text="Woran genau, z. B. Erdnuss oder Penicillin",
+    )
+    severity = models.CharField(
+        max_length=20,
+        choices=SEVERITY_CHOICES,
+        default="moderate",
+        verbose_name="Schwere",
+    )
+    reaction = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name="Reaktion",
+        help_text="Was passiert, woran man es erkennt",
+    )
+    note = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name="Hinweis",
+        help_text="Was im Ernstfall zu tun ist",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # Das Schwerste zuerst: wer die Liste ueberfliegt, sieht zuerst das,
+        # was zaehlt.
+        ordering = ["-severity", "name"]
+        verbose_name = "Allergie"
+        verbose_name_plural = "Allergien"
+
+    def __str__(self) -> str:
+        return f"{self.resident.get_full_name()}: {self.name}"
+
+    @property
+    def is_critical(self) -> bool:
+        return self.severity == "severe"
+
+
+class Consent(models.Model):
+    """
+    Eine Einwilligung der Sorgeberechtigten.
+
+    Die Frage im Alltag lautet nicht "gibt es eine Einwilligung", sondern
+    "darf ich dieses Kind heute mit ins Schwimmbad nehmen". Darauf muss die
+    Anwendung in zwei Sekunden antworten - deshalb `status` als abgeleitete
+    Angabe und nicht als Feld, das jemand pflegen muesste.
+
+    Eine Einwilligung ist widerruflich (Art. 7 Abs. 3 DSGVO) und laeuft oft
+    ab. Beides steht hier, und beides zaehlt: ein Widerruf schlaegt jede
+    Laufzeit.
+
+    **Widerruf loescht nicht.** Wer widerruft, hinterlaesst eine Zeile mit
+    Datum. Die Einwilligung von damals hat gegolten, und dass sie gegolten
+    hat, kann spaeter die entscheidende Frage sein.
+    """
+
+    SUBJECT_CHOICES = [
+        ("photo_internal", "Fotos intern"),
+        ("photo_external", "Fotos veröffentlichen"),
+        ("outing", "Ausflüge und Fahrten"),
+        ("swimming", "Schwimmen"),
+        ("medical", "Ärztliche Behandlung"),
+        ("medication", "Medikamentengabe"),
+        ("data_school", "Austausch mit der Schule"),
+        ("data_therapy", "Austausch mit Therapie und Medizin"),
+        ("transport", "Mitfahrt im Dienstfahrzeug"),
+        ("other", "Sonstiges"),
+    ]
+
+    resident = models.ForeignKey(
+        Resident,
+        on_delete=models.CASCADE,
+        related_name="consents",
+        verbose_name="Bewohner:in",
+    )
+    subject = models.CharField(
+        max_length=30,
+        choices=SUBJECT_CHOICES,
+        verbose_name="Gegenstand",
+    )
+    granted = models.BooleanField(
+        default=True,
+        verbose_name="Erteilt",
+        help_text="Nein heißt: ausdrücklich nicht erteilt. Das ist etwas anderes als „nicht gefragt“.",
+    )
+    granted_by = models.CharField(
+        max_length=120,
+        verbose_name="Erteilt von",
+        help_text="Wer unterschrieben hat",
+    )
+    granted_on = models.DateField(verbose_name="Erteilt am")
+    valid_until = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name="Gültig bis",
+        help_text="Leer heißt: bis zum Widerruf",
+    )
+    revoked_on = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name="Widerrufen am",
+    )
+    note = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name="Vermerk",
+        help_text="Einschränkungen, Absprachen, wo das Papier liegt",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["subject", "-granted_on"]
+        verbose_name = "Einwilligung"
+        verbose_name_plural = "Einwilligungen"
+
+    def __str__(self) -> str:
+        return f"{self.resident.get_full_name()}: {self.get_subject_display()}"
+
+    @property
+    def status(self) -> str:
+        """
+        Gilt sie heute?
+
+        Die Reihenfolge der Pruefungen ist die Aussage: ein Widerruf schlaegt
+        alles, dann erst zaehlen Laufzeit und Erteilung.
+        """
+        from datetime import date as _date
+
+        heute = _date.today()
+        if self.revoked_on and self.revoked_on <= heute:
+            return "revoked"
+        if not self.granted:
+            return "denied"
+        if self.granted_on > heute:
+            return "pending"
+        if self.valid_until and self.valid_until < heute:
+            return "expired"
+        return "valid"
+
+    @property
+    def status_display(self) -> str:
+        return {
+            "valid": "Gültig",
+            "expired": "Abgelaufen",
+            "revoked": "Widerrufen",
+            "denied": "Nicht erteilt",
+            "pending": "Gilt ab später",
+        }[self.status]

@@ -104,6 +104,12 @@ resident_router = nested_routers.NestedSimpleRouter(
 resident_router.register(
     r"contact", views.ResidentContactViewSet, basename="resident-contact"
 )
+resident_router.register(
+    r"allergy", views.AllergyViewSet, basename="resident-allergy"
+)
+resident_router.register(
+    r"consent", views.ConsentViewSet, basename="resident-consent"
+)
 
 # Dienste haengen immer an einem Dienstplan.
 duty_router = nested_routers.NestedSimpleRouter(router, r"duty-plan", lookup="plan")

@@ -727,3 +727,159 @@ class TabellenEintragTestCase(APITestCase):
         self.assertEqual(eintrag.name, "Aufgaben neu benannt")
         self.assertEqual(eintrag.kind, "table")
         self.assertEqual(eintrag.data, self.TABELLE)
+
+
+class AllergieTestCase(APITestCase):
+    """
+    Allergien haengen am Bewohner und folgen seiner Sichtbarkeit.
+
+    Die eine Angabe, die hier wirklich rechnet, ist `is_critical`: nur eine
+    schwere Allergie erscheint in der Kopfzeile der Bewohnerseite. Eine
+    Warnung, die ueberall steht, ist keine.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.fachkraft = User.objects.create_user(
+            username="fach", password="testpass123"
+        )
+        self.fremde = User.objects.create_user(
+            username="fremd", password="testpass123"
+        )
+
+        self.gruppe = Group.objects.create(
+            name="Wohngruppe", address="A", postalcode="11111", city="Hier"
+        )
+        self.andere = Group.objects.create(
+            name="Nachbargruppe", address="B", postalcode="22222", city="Dort"
+        )
+        self.gruppe.group_members.add(self.fachkraft)
+        self.andere.group_members.add(self.fremde)
+
+        self.kind = Resident.objects.create(
+            first_name="Nele",
+            last_name="Beispiel",
+            moved_in_since=date(2024, 1, 1),
+            group=self.gruppe,
+        )
+        self.client.force_authenticate(user=self.fachkraft)
+
+    def anlegen(self, **felder):
+        daten = {"name": "Erdnuss", "kind": "food", "severity": "severe"}
+        daten.update(felder)
+        return self.client.post(
+            f"/api/v1/resident/{self.kind.id}/allergy/", daten, format="json"
+        )
+
+    def test_anlegen_und_lesen(self):
+        antwort = self.anlegen()
+        self.assertEqual(antwort.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(antwort.data["is_critical"])
+        self.assertEqual(antwort.data["severity_display"], "Schwer")
+
+        liste = self.client.get(f"/api/v1/resident/{self.kind.id}/allergy/")
+        self.assertEqual(len(eintraege(liste)), 1)
+
+    def test_nur_schwere_gelten_als_kritisch(self):
+        """Leicht und mittel tragen keine Warnfarbe."""
+        antwort = self.anlegen(severity="mild", name="Birkenpollen")
+        self.assertFalse(antwort.data["is_critical"])
+
+    def test_bewohnerliste_traegt_die_kurzangabe(self):
+        """
+        Die Uebersicht zeigt die schweren Allergien, ohne die Akte zu oeffnen.
+        """
+        self.anlegen()
+        self.anlegen(severity="mild", name="Birkenpollen")
+
+        antwort = self.client.get(f"/api/v1/resident/{self.kind.id}/")
+        self.assertEqual(antwort.data["critical_allergies"], ["Erdnuss"])
+        self.assertEqual(antwort.data["allergy_count"], 2)
+
+    def test_fremde_gruppe_sieht_nichts(self):
+        """Wie ueberall: 404, nicht 403 - sonst bestaetigt die Antwort die Id."""
+        self.anlegen()
+        self.client.force_authenticate(user=self.fremde)
+        antwort = self.client.get(f"/api/v1/resident/{self.kind.id}/allergy/")
+        self.assertEqual(len(eintraege(antwort)), 0)
+
+
+class EinwilligungTestCase(APITestCase):
+    """
+    Einwilligungen: gilt sie heute?
+
+    `status` wird nicht gespeichert, sondern gerechnet. Eine Einwilligung
+    laeuft ab, waehrend niemand hinsieht - ein gespeicherter Stand waere am
+    Tag danach falsch.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.fachkraft = User.objects.create_user(
+            username="fach", password="testpass123"
+        )
+        self.gruppe = Group.objects.create(
+            name="Wohngruppe", address="A", postalcode="11111", city="Hier"
+        )
+        self.gruppe.group_members.add(self.fachkraft)
+        self.kind = Resident.objects.create(
+            first_name="Yusuf",
+            last_name="Beispiel",
+            moved_in_since=date(2024, 1, 1),
+            group=self.gruppe,
+        )
+        self.client.force_authenticate(user=self.fachkraft)
+
+    def anlegen(self, **felder):
+        daten = {
+            "subject": "swimming",
+            "granted": True,
+            "granted_by": "A. Beispiel",
+            "granted_on": "2024-01-01",
+        }
+        daten.update(felder)
+        return self.client.post(
+            f"/api/v1/resident/{self.kind.id}/consent/", daten, format="json"
+        )
+
+    def test_erteilt_gilt(self):
+        antwort = self.anlegen()
+        self.assertEqual(antwort.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(antwort.data["status"], "valid")
+
+    def test_abgelaufen(self):
+        antwort = self.anlegen(valid_until="2024-06-30")
+        self.assertEqual(antwort.data["status"], "expired")
+
+    def test_widerruf_schlaegt_laufzeit(self):
+        """
+        Ein Widerruf gilt, auch wenn die Laufzeit noch laeuft. Die Reihenfolge
+        der Pruefungen ist die Aussage.
+        """
+        antwort = self.anlegen(valid_until="2099-12-31", revoked_on="2024-03-01")
+        self.assertEqual(antwort.data["status"], "revoked")
+
+    def test_ausdruecklich_nicht_erteilt(self):
+        """
+        "Nicht erteilt" ist etwas anderes als "nicht gefragt". Nur das erste
+        laesst sich eintragen.
+        """
+        antwort = self.anlegen(granted=False)
+        self.assertEqual(antwort.data["status"], "denied")
+        self.assertEqual(antwort.data["status_display"], "Nicht erteilt")
+
+    def test_widerruf_loescht_nicht(self):
+        """
+        Dass eine Einwilligung damals gegolten hat, kann spaeter die
+        entscheidende Frage sein.
+        """
+        angelegt = self.anlegen()
+        eintrag_id = angelegt.data["id"]
+        self.client.patch(
+            f"/api/v1/resident/{self.kind.id}/consent/{eintrag_id}/",
+            {"revoked_on": "2024-08-01"},
+            format="json",
+        )
+        liste = self.client.get(f"/api/v1/resident/{self.kind.id}/consent/")
+        self.assertEqual(len(eintraege(liste)), 1)
+        self.assertEqual(eintraege(liste)[0]["status"], "revoked")

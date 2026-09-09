@@ -3,6 +3,8 @@ from django.contrib.auth.models import User
 
 from django_grp_backend.access import ADMIN, SPECIALIST, access_level, employee_of
 from django_grp_backend.models import (
+    Allergy,
+    Consent,
     Protocol,
     ProtocolAttendance,
     ProtocolItem,
@@ -183,6 +185,11 @@ class GroupSerializer(serializers.ModelSerializer):
 
 class ResidentSerializer(EigeneGruppeMixin, serializers.ModelSerializer):
     picture = serializers.SerializerMethodField()
+    # Zwei knappe Angaben statt der ganzen Liste. Sie stehen auch in der
+    # Uebersicht, und dort waeren vollstaendige Allergien je Zeile ein
+    # Vielfaches an Daten fuer eine Angabe, die man nur ueberfliegt.
+    critical_allergies = serializers.SerializerMethodField()
+    allergy_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Resident
@@ -194,7 +201,20 @@ class ResidentSerializer(EigeneGruppeMixin, serializers.ModelSerializer):
             "moved_out_since",
             "group",
             "picture",
+            "critical_allergies",
+            "allergy_count",
         ]
+
+    def get_critical_allergies(self, obj) -> list[str]:
+        """Nur die schweren, und nur ihre Bezeichnung."""
+        return [
+            allergie.name
+            for allergie in obj.allergies.all()
+            if allergie.severity == "severe"
+        ]
+
+    def get_allergy_count(self, obj) -> int:
+        return len(obj.allergies.all())
 
     def get_picture(self, obj):
         """Return full URL for resident picture if available."""
@@ -207,6 +227,66 @@ class ResidentSerializer(EigeneGruppeMixin, serializers.ModelSerializer):
         except (AttributeError, TypeError):
             pass
         return None
+
+
+class AllergySerializer(serializers.ModelSerializer):
+    """Allergien und Unvertraeglichkeiten einer Bewohnerin oder eines Bewohners."""
+
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+    severity_display = serializers.CharField(
+        source="get_severity_display", read_only=True
+    )
+    is_critical = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Allergy
+        fields = [
+            "id",
+            "resident",
+            "kind",
+            "kind_display",
+            "name",
+            "severity",
+            "severity_display",
+            "is_critical",
+            "reaction",
+            "note",
+        ]
+        read_only_fields = ["resident"]
+
+
+class ConsentSerializer(serializers.ModelSerializer):
+    """
+    Einwilligungen der Sorgeberechtigten.
+
+    `status` kommt vom Modell und wird nicht gespeichert: eine Einwilligung
+    laeuft ab, waehrend niemand hinsieht, und ein gespeicherter Stand waere
+    am Tag danach falsch.
+    """
+
+    subject_display = serializers.CharField(
+        source="get_subject_display", read_only=True
+    )
+    status = serializers.CharField(read_only=True)
+    status_display = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Consent
+        fields = [
+            "id",
+            "resident",
+            "subject",
+            "subject_display",
+            "granted",
+            "granted_by",
+            "granted_on",
+            "valid_until",
+            "revoked_on",
+            "note",
+            "status",
+            "status_display",
+        ]
+        read_only_fields = ["resident"]
 
 
 class ResidentContactSerializer(serializers.ModelSerializer):

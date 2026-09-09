@@ -21,6 +21,8 @@ from .guards import ProtokollGesperrt, protokoll_fuer, schreibbares_protokoll
 from django_grp_backend.access import WriteNeedsRole, is_admin, may_read_only
 from django_grp_backend.functions import upload_too_large
 from django_grp_backend.models import (
+    Allergy,
+    Consent,
     Protocol,
     Group,
     Resident,
@@ -40,6 +42,8 @@ from .serializers import (
     ProtocolSummarySerializer,
     GroupSerializer,
     ResidentSerializer,
+    AllergySerializer,
+    ConsentSerializer,
     ResidentContactSerializer,
     ResidentPictureUploadSerializer,
     ItemSerializer,
@@ -257,7 +261,76 @@ class ResidentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter residents by user group membership or staff status."""
         user = self.request.user
-        return Resident.objects.for_user(user).select_related("group")
+        # prefetch, weil der Serializer je Bewohner die Allergien
+        # ueberfliegt - ohne das eine Abfrage je Zeile.
+        return (
+            Resident.objects.for_user(user)
+            .select_related("group")
+            .prefetch_related("allergies")
+        )
+
+
+class ResidentScopedViewSet(viewsets.ModelViewSet):
+    """
+    Basis fuer alles, was unter /api/v1/resident/{resident_id}/ haengt.
+
+    Erledigt einmal, was Kontakte, Allergien und Einwilligungen gleichermassen
+    brauchen: Bewohner aus der URL holen und pruefen, ob der Benutzer ihn
+    ueberhaupt sehen darf.
+    """
+
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
+    model = None
+
+    def get_resident(self):
+        """Bewohner aus der URL, sofern der Benutzer darauf zugreifen darf."""
+        return (
+            Resident.objects.for_user(self.request.user)
+            .filter(id=self.kwargs.get("resident_pk"))
+            .first()
+        )
+
+    def get_queryset(self):
+        resident = self.get_resident()
+        if resident is None:
+            return self.model.objects.none()
+        return self.model.objects.filter(resident=resident)
+
+    def perform_create(self, serializer):
+        resident = self.get_resident()
+        if resident is None:
+            raise ValidationError("Bewohner nicht gefunden oder kein Zugriff.")
+        serializer.save(resident=resident)
+
+
+class AllergyViewSet(ResidentScopedViewSet):
+    """
+    Allergien und Unvertraeglichkeiten.
+
+    /api/v1/resident/{resident_id}/allergy/
+
+    Wer die Bewohnerakte sehen darf, sieht auch die Allergien - und zwar
+    ausdruecklich auch die Aushilfe im Wochenenddienst. Eine Allergie, die
+    von der Zugriffsstufe abhaengt, ist im falschen Moment nicht da.
+    """
+
+    serializer_class = AllergySerializer
+    model = Allergy
+
+
+class ConsentViewSet(ResidentScopedViewSet):
+    """
+    Einwilligungen der Sorgeberechtigten.
+
+    /api/v1/resident/{resident_id}/consent/
+
+    Ein Widerruf ist eine Aenderung, keine Loeschung: `revoked_on` setzen,
+    Zeile stehen lassen. Dass eine Einwilligung damals gegolten hat, kann
+    spaeter die entscheidende Frage sein.
+    """
+
+    serializer_class = ConsentSerializer
+    model = Consent
 
 
 class ResidentContactViewSet(viewsets.ModelViewSet):
