@@ -14,7 +14,7 @@ Anwendung und ein rechtlich erhebliches Dokument; wer es nachträglich
 änderte, löschte oder abschloss, hinterließ keine Spur. Nach einem
 vollständigen Arbeitsablauf - Protokoll anlegen, vier Punkte bearbeiten,
 Aufgabe anlegen, Anwesenheit setzen, abschließen, exportieren - stand in der
-Historie kein einziger Eintrag dazu (ARBEITSABLAUF-TEST.md, W2).
+Historie kein einziger Eintrag dazu.
 
 Was weiterhin außen vor bleibt: Dienste und Zeitbuchungen. Die entstehen zu
 Tausenden und sind über ihre eigenen Zeitstempel nachvollziehbar.

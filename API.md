@@ -3,7 +3,8 @@
 > ## Was sich zuletzt geändert hat
 >
 > Diese Änderungen betreffen jeden Client — auch die abgelöste Flutter-App.
-> Hintergrund und Begründung: `UMSETZUNG.md` im Meta-Repository.
+> Hintergrund und Begründung stehen in der Versionsgeschichte des
+> Meta-Repositories.
 >
 > **Listen kommen seitenweise.** Alle ViewSet-Endpunkte (`/protocol/`,
 > `/resident/`, `/group/`, `/employee/`, …) antworten mit
