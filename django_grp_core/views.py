@@ -18,6 +18,8 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework.authtoken.models import Token
 
+from django_grp_org.personal import personaldatensatz_anlegen
+
 import logging
 
 logger = logging.getLogger("django_grp.core")
@@ -223,6 +225,13 @@ class SetupWizardView(APIView):
             
             # Create auth token for the new superuser
             Token.objects.get_or_create(user=superuser)
+
+            # Und den Personaldatensatz dazu. Ein Konto ohne ihn ist ein
+            # halbes Konto: kein Foto, kein Dienstplan, keine Zeitbuchung -
+            # und auf der Uebersicht nur der Hinweis, dass etwas fehlt.
+            # Gibt es noch keinen Traeger, laeuft die Einrichtung weiter;
+            # genau dafuer ist der Assistent da.
+            personaldatensatz_anlegen(superuser)
             
             return Response(
                 {
