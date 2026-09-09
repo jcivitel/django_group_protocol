@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 
-from django_grp_backend.access import ADMIN, SPECIALIST, access_level
+from django_grp_backend.access import ADMIN, SPECIALIST, access_level, employee_of
 from django_grp_backend.models import (
     Protocol,
     ProtocolAttendance,
@@ -270,7 +270,23 @@ class ItemSerializer(serializers.ModelSerializer):
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
-    """Serializer for authenticated user's profile information."""
+    """
+    Das eigene Profil - lesen und den Namen aendern.
+
+    Die E-Mail-Adresse steht hier bewusst nur lesend.
+
+    Sie ist in dieser Anwendung kein Kontaktfeld, sondern ein Zugang: mit
+    ihr laesst sich anmelden (UsernameOrEmailBackend) und ueber sie laeuft
+    das Zuruecksetzen des Passworts. Wer sie selbst aendern kann, kann sein
+    Konto auf eine Adresse umhaengen, die er woanders kontrolliert - und
+    hinterher fuehrt der Weg zurueck ueber "Passwort vergessen" dorthin.
+    Bei einem Tippfehler faellt dasselbe ohne boese Absicht an: die Person
+    sperrt sich aus und merkt es erst, wenn sie das Passwort braucht.
+
+    Beides gehoert an eine Stelle, an der jemand hinsieht. Aendern kann die
+    Adresse deshalb die Verwaltung (UserAdminDetailView), und die Pruefung
+    auf Doppelvergabe steht dort.
+    """
 
     groups = serializers.SerializerMethodField()
 
@@ -290,33 +306,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "username",
+            "email",
             "date_joined",
             "is_staff",
             "is_superuser",
         ]
-
-    def validate_email(self, email):
-        """
-        Eine E-Mail-Adresse gehoert genau einem Konto.
-
-        Django setzt das nicht durch, angemeldet wird sich hier aber wahlweise
-        mit Benutzername ODER E-Mail (UsernameOrEmailBackend). Trugen zwei
-        Konten dieselbe Adresse, lehnte das Backend die Anmeldung wegen
-        Mehrdeutigkeit ab - wer die Adresse einer anderen Person eintrug,
-        sperrte sie damit aus (S11).
-        """
-        email = (email or "").strip()
-        if not email:
-            return email
-
-        vergeben = User.objects.filter(email__iexact=email)
-        if self.instance is not None:
-            vergeben = vergeben.exclude(pk=self.instance.pk)
-        if vergeben.exists():
-            raise serializers.ValidationError(
-                "Diese E-Mail-Adresse gehoert bereits zu einem anderen Konto."
-            )
-        return email
 
     def get_groups(self, obj):
         """Get groups the user is member of."""
@@ -381,6 +375,7 @@ class UserDetailedProfileSerializer(serializers.ModelSerializer):
     """Serializer for detailed authenticated user profile with group permissions."""
 
     groups_with_permissions = serializers.SerializerMethodField()
+    employee = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -394,6 +389,7 @@ class UserDetailedProfileSerializer(serializers.ModelSerializer):
             "is_superuser",
             "date_joined",
             "groups_with_permissions",
+            "employee",
         ]
         read_only_fields = [
             "id",
@@ -413,6 +409,36 @@ class UserDetailedProfileSerializer(serializers.ModelSerializer):
             groups, many=True, context={"request": self.context.get("request")}
         )
         return serializer.data
+
+    def get_employee(self, obj):
+        """
+        Der eigene Personaldatensatz, sofern das Konto mit einem verknuepft
+        ist - sonst null.
+
+        Nur das Noetige: die Kennung, damit die Profilseite das eigene Foto
+        an /employee/{id}/picture/ schicken kann, und die Adresse des
+        Bildes, damit sie es anzeigen kann. Alles Weitere - Vertrag,
+        Personalnummer, Zeitkonto - steht unter Personal und gehoert nicht
+        in eine Antwort, die jede Seite dieser Anwendung mitliest.
+        """
+        employee = employee_of(obj)
+        if employee is None:
+            return None
+
+        request = self.context.get("request")
+        bild = None
+        if employee.picture:
+            bild = (
+                request.build_absolute_uri(employee.picture.url)
+                if request
+                else employee.picture.url
+            )
+
+        return {
+            "id": employee.id,
+            "full_name": employee.get_full_name(),
+            "picture": bild,
+        }
 
 
 class ProtocolPresenceSerializer(serializers.ModelSerializer):

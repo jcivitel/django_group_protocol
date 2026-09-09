@@ -447,12 +447,40 @@ class VerwaltungskontoTestCase(APITestCase):
         self.zweiter.refresh_from_db()
         self.assertEqual(self.zweiter.email, "zwei@beispiel.de")
 
-    def test_eigenes_profil_email_nicht_doppelt(self):
+    def test_eigenes_profil_aendert_die_email_nicht(self):
+        """
+        Die Adresse ist ein Zugang, kein Kontaktfeld: mit ihr laesst sich
+        anmelden, und ueber sie laeuft das Zuruecksetzen des Passworts. Wer
+        sie selbst umtragen kann, haengt sein Konto auf eine Adresse um, die
+        er woanders kontrolliert - oder sperrt sich mit einem Tippfehler aus.
+
+        Der Endpunkt weist das nicht ab, er ignoriert es: alles andere am
+        Profil soll speicherbar bleiben.
+        """
         self.client.force_authenticate(user=self.zweiter)
         antwort = self.client.put(
-            "/api/v1/user/profile/", {"email": "admin@beispiel.de"}, format="json"
+            "/api/v1/user/profile/",
+            {"email": "admin@beispiel.de", "first_name": "Zwei"},
+            format="json",
         )
-        self.assertEqual(antwort.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+        self.zweiter.refresh_from_db()
+        self.assertEqual(self.zweiter.email, "zwei@beispiel.de")
+        # Der Name geht durch - sonst waere das Formular nutzlos.
+        self.assertEqual(self.zweiter.first_name, "Zwei")
+
+    def test_verwaltung_aendert_die_email_weiterhin(self):
+        """Der Weg ist nicht zu, er fuehrt nur ueber eine Stelle mit Aufsicht."""
+        antwort = self.client.put(
+            f"/api/v1/admin/users/{self.zweiter.id}/",
+            {"email": "neu@beispiel.de"},
+            format="json",
+        )
+
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+        self.zweiter.refresh_from_db()
+        self.assertEqual(self.zweiter.email, "neu@beispiel.de")
 
 
 class AnmeldebremseTestCase(APITestCase):
