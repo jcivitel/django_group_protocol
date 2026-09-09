@@ -1,5 +1,60 @@
 # Group Protocol API Documentation
 
+> ## Was sich zuletzt geändert hat
+>
+> Diese Änderungen betreffen jeden Client — auch die abgelöste Flutter-App.
+> Hintergrund und Begründung stehen in der Versionsgeschichte des
+> Meta-Repositories.
+>
+> **Listen kommen seitenweise.** Alle ViewSet-Endpunkte (`/protocol/`,
+> `/resident/`, `/group/`, `/employee/`, …) antworten mit
+> `{count, next, previous, results}` statt mit einem blanken Array. Ein Client
+> muss `results` lesen und `next` folgen. Die Seitengröße lässt sich je
+> Anfrage mit `?page_size=` bis zu einer Obergrenze anheben.
+>
+> **BasicAuth ist aus.** Nur noch `Authorization: Token <token>`. Und der
+> Token läuft ab: nach `TOKEN_MAX_AGE_HOURS` (Vorgabe 12 h) antwortet die API
+> mit 401, der Client muss sich neu anmelden.
+>
+> **Der Login ist gedrosselt** (Vorgabe 10 Versuche je Minute). Bei zu vielen
+> Versuchen kommt 429 mit `Retry-After`.
+>
+> **Medien sind geschützt.** `/media/<pfad>` liefert nichts mehr aus. Der Weg
+> ist `GET /api/v1/media/<pfad>` mit Token; geprüft wird der Datensatz, an dem
+> die Datei hängt.
+>
+> **Bilddrehen über die Bewohnernummer:**
+> `POST /api/v1/resident/{id}/rotate/` mit `{"direction": "left"|"right"}`.
+> `/api/v1/rotate_image/` gibt es weiter, verlangt aber `resident_id` im Rumpf
+> statt `image_url`.
+>
+> **Der Export bestätigt sich ausdrücklich.**
+> `POST /api/v1/protocol/{id}/exported_file/` braucht zusätzlich
+> `confirm=true` und nimmt nur PDF an. Eine Gegenrichtung gibt es bewusst
+> nicht: ein exportiertes Protokoll ist abgeschlossen und bleibt es. Der
+> Schutz vor dem versehentlichen Abschluss sitzt deshalb davor, in der
+> Bestätigung.
+>
+> **Der Schreibschutz antwortet einheitlich** mit `403` und
+> `{"detail": "Exportierte Protokolle können nicht bearbeitet werden."}` —
+> vorher je nach Endpunkt 400 oder 403 und zwei Schreibweisen.
+>
+> **Gruppen ändern und löschen ist der Verwaltung vorbehalten.** `PUT`
+> ersetzt jetzt wirklich (Pflichtfelder nötig); für Teiländerungen `PATCH`.
+>
+> **Neu:**
+> - `POST /api/v1/auth/passwort-vergessen/` `{email}`
+> - `POST /api/v1/auth/passwort-neu/` `{uid, token, password}`
+> - `GET /api/v1/todo/?von=&bis=` — alle Aufgaben eines Zeitraums über alle
+>   zugänglichen Protokolle, statt einer Anfrage je Protokoll
+> - `GET /api/livez/` und `GET /api/readyz/` neben `GET /api/health/`
+>
+> **Entfallen:** die Rechtematrix
+> (`/api/v1/admin/users/{id}/permissions/`). Sie wurde von keinem Endpunkt
+> ausgewertet. Die Zugriffsstufe steht als `access_level` am Benutzer.
+> Ebenso entfallen: `GET /` und `/info/` (HTML-Seiten des alten
+> Einrichtungswegs).
+
 ## Base URL
 
 ```
