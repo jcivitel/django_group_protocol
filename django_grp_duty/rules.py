@@ -78,17 +78,129 @@ def check_plan(plan) -> list[Violation]:
 
 
 def _check_open_shifts(shifts) -> list[Violation]:
-    return [
-        Violation(
-            rule="open_shift",
-            severity="error",
-            date=str(shift.date),
-            message=f"{shift.shift_type.name} ist nicht besetzt.",
-            shift_id=shift.id,
+    """
+    Ein unbesetzter Platz ist nur dann eine Luecke, wenn seine Zeit nicht
+    schon von einem besetzten Dienst abgedeckt ist.
+
+    Der Plan haelt je Dienstart einen Platz bereit; besetzt wird davon, was
+    der Tag braucht. Am einen Tag sind das Tag- und Nachtdienst, am
+    naechsten der 24-Stunden-Dienst allein - und dann stehen daneben zwei
+    leere Plaetze, die niemand vermisst. Vorher stand an jedem solchen Tag
+    "Nachtbereitschaft ist nicht besetzt", und ein fertiger Monat meldete
+    sechzig Fehler, von denen keiner einer war.
+
+    Gemeldet wird deshalb nur, was wirklich offen bleibt - und die Meldung
+    sagt, wie viel Zeit das ist.
+    """
+    gedeckt = _gedeckte_zeiten(shifts)
+
+    out = []
+    for shift in shifts:
+        if shift.employee_id is not None:
+            continue
+
+        offen = _nicht_gedeckt(_abschnitt(shift), gedeckt)
+        if offen <= DECKUNG_TOLERANZ_MINUTEN:
+            continue
+
+        out.append(
+            Violation(
+                rule="open_shift",
+                severity="error",
+                date=str(shift.date),
+                message=(
+                    f"{shift.shift_type.name} ist nicht besetzt - "
+                    f"{_dauer_text(offen)} ohne Besetzung."
+                ),
+                shift_id=shift.id,
+            )
         )
+    return out
+
+
+# Wie viel unbesetzte Zeit an einem Dienstrand durchgeht, bevor sie als
+# Luecke zaehlt.
+#
+# Dienstzeiten werden von Hand eingetragen und treffen sich selten auf die
+# Minute: der 24-Stunden-Dienst endet hier um 09:59, der naechste beginnt um
+# 10:00. Eine Viertelstunde ist kuerzer als jede Uebergabe und lang genug,
+# solche Raender zu schlucken.
+DECKUNG_TOLERANZ_MINUTEN = 15
+
+
+def _abschnitt(shift) -> tuple[int, int]:
+    """
+    Ein Dienst als Minutenspanne auf einem durchlaufenden Zeitstrahl.
+
+    Der Nullpunkt ist der 1. Januar 1970; entscheidend ist nur, dass alle
+    Dienste denselben benutzen. Ein Dienst ueber Mitternacht endet damit
+    schlicht spaeter als er beginnt, statt rechnerisch davor - und die
+    Nacht des einen Tages liegt gleich neben dem Morgen des naechsten.
+    """
+    tag = shift.date.toordinal() * 24 * 60
+    start = _minutes(shift.shift_type.start_time)
+    ende = _minutes(shift.shift_type.end_time)
+    if ende <= start:
+        ende += 24 * 60
+    return tag + start, tag + ende
+
+
+def _gedeckte_zeiten(shifts) -> list[tuple[int, int]]:
+    """Die besetzten Spannen, zusammengefasst und aufsteigend sortiert."""
+    spannen = sorted(
+        _abschnitt(shift) for shift in shifts if shift.employee_id is not None
+    )
+
+    zusammen: list[tuple[int, int]] = []
+    for start, ende in spannen:
+        if zusammen and start <= zusammen[-1][1]:
+            zusammen[-1] = (zusammen[-1][0], max(zusammen[-1][1], ende))
+        else:
+            zusammen.append((start, ende))
+    return zusammen
+
+
+def _nicht_gedeckt(abschnitt: tuple[int, int], gedeckt) -> int:
+    """Wie viele Minuten dieser Spanne von niemandem abgedeckt sind."""
+    start, ende = abschnitt
+    offen = ende - start
+    for g_start, g_ende in gedeckt:
+        if g_ende <= start:
+            continue
+        if g_start >= ende:
+            break
+        offen -= min(ende, g_ende) - max(start, g_start)
+    return max(0, offen)
+
+
+def _dauer_text(minuten: int) -> str:
+    stunden, rest = divmod(minuten, 60)
+    if stunden and rest:
+        return f"{stunden} h {rest} min"
+    if stunden:
+        return f"{stunden} h"
+    return f"{rest} min"
+
+
+def offene_plaetze(plan) -> int:
+    """
+    Wie viele Plaetze eines Plans wirklich Luecken sind.
+
+    Nicht dasselbe wie "leere Plaetze": der Plan haelt je Dienstart einen
+    Platz bereit, besetzt wird davon, was der Tag braucht. Ein leerer Platz
+    neben einem besetzten 24-Stunden-Dienst ist kein Fehlstand. Vorher stand
+    in der Uebersicht "60 Dienste nicht besetzt" unter einem Monat, der
+    lueckenlos gedeckt war.
+    """
+    shifts = list(plan.shifts.select_related("shift_type"))
+    gedeckt = _gedeckte_zeiten(shifts)
+
+    return sum(
+        1
         for shift in shifts
         if shift.employee_id is None
-    ]
+        and _nicht_gedeckt(_abschnitt(shift), gedeckt) > DECKUNG_TOLERANZ_MINUTEN
+    )
 
 
 def _check_shift_length(shifts) -> list[Violation]:
@@ -331,7 +443,7 @@ def _overlaps(a_start, a_end, b_start, b_end) -> bool:
     return False
 
 
-def _covers(requirement, shift) -> bool:
+def faellt_unter(requirement, shift) -> bool:
     """Faellt dieser Dienst unter diese Besetzungsvorgabe?"""
     if requirement.shift_type_id is not None:
         return shift.shift_type_id == requirement.shift_type_id
@@ -349,7 +461,7 @@ def _check_requirements(requirements, day, staffed) -> list[Violation]:
     """Die feingliedrigen Vorgaben eines Bereichs gegen einen Tag halten."""
     out = []
     for requirement in requirements:
-        passend = [shift for shift in staffed if _covers(requirement, shift)]
+        passend = [shift for shift in staffed if faellt_unter(requirement, shift)]
 
         if len(passend) < requirement.minimum_staff:
             out.append(

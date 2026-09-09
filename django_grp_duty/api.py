@@ -7,7 +7,9 @@ Daten. Das gilt für Dienste, Abwesenheitsanträge, Zeitbuchungen und
 Zeitkonten gleichermaßen.
 """
 
+from calendar import monthrange
 from datetime import date
+from decimal import Decimal
 
 from django.db.models import Q
 from django.utils import timezone
@@ -33,10 +35,12 @@ from .models import (
     TimeAccount,
     TimeEntry,
 )
-from .autofill import autofill_plan
-from .rules import check_plan
+from .autofill import autofill_plan, konto_stunden, mitarbeitende
+from .bedarf import tagesbedarf
+from .rules import check_plan, offene_plaetze
 from .services import (
     close_month,
+    target_hours_for_month,
     find_substitutes,
     generate_shifts,
     vacation_balance,
@@ -153,7 +157,15 @@ class DutyPlanSerializer(serializers.ModelSerializer):
         return obj.shifts.count()
 
     def get_open_shifts(self, obj):
-        return obj.shifts.filter(employee__isnull=True).count()
+        """
+        Nur die echten Luecken.
+
+        Vorher war das die Zahl der leeren Plaetze. Der Plan haelt aber je
+        Dienstart einen Platz bereit, und besetzt wird davon, was der Tag
+        braucht - ein fertiger Monat meldete so sechzig Fehlstellen, die
+        keine waren.
+        """
+        return offene_plaetze(obj)
 
 
 class ShiftTypeViewSet(viewsets.ModelViewSet):
@@ -353,6 +365,81 @@ class DutyPlanRulesView(APIView):
                 "errors": sum(1 for v in violations if v["severity"] == "error"),
                 "warnings": sum(1 for v in violations if v["severity"] == "warning"),
                 "violations": violations,
+            }
+        )
+
+
+class DutyPlanBedarfView(APIView):
+    """
+    Was ein Monat nach den Besetzungsvorgaben kosten wuerde - vor dem
+    Anlegen.
+
+    Beantwortet die Frage, die man sonst erst nach dem Anlegen und Besetzen
+    beantwortet bekam: reicht das Team fuer diesen Plan? Bisher entstanden
+    stur drei Plaetze taeglich, und am Monatsende hatten alle Ueberstunden.
+    Jetzt steht die Rechnung vorher da.
+    """
+
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
+
+    def get(self, request, plan_id: int):
+        plan = DutyPlan.objects.filter(id=plan_id).select_related(
+            "department"
+        ).first()
+        if plan is None:
+            return Response({"error": "Dienstplan nicht gefunden."}, status=404)
+
+        roh = request.query_params.get("shift_types", "")
+        ids = [int(teil) for teil in roh.split(",") if teil.strip().isdigit()]
+        arten = list(
+            limit_to_tenant(ShiftType.objects.all(), request.user).filter(id__in=ids)
+            if ids
+            else limit_to_tenant(ShiftType.objects.all(), request.user)
+        )
+
+        bedarf = tagesbedarf(plan.department, arten)
+        tage = monthrange(plan.year, plan.month)[1]
+
+        # Gerechnet wird in Kontostunden und nicht in Uhrzeiten: Bereitschaft
+        # zaehlt zur Haelfte, wie bei der Zeitbuchung. Sonst sieht ein
+        # 24-Stunden-Dienst nach 24 Stunden aus und die Gegenueberstellung
+        # mit dem Monatssoll waere schief.
+        arten_nach_id = {art.id: art for art in arten}
+        stunden_tag = sum(
+            (
+                konto_stunden(arten_nach_id[art_id]) * anzahl
+                for art_id, anzahl in bedarf.items()
+                if anzahl and art_id in arten_nach_id
+            ),
+            Decimal("0"),
+        )
+
+        # Dasselbe Team, das auch der Automat besetzen wuerde.
+        team = mitarbeitende(plan.department)
+        kapazitaet = sum(
+            (target_hours_for_month(person, plan.year, plan.month) for person in team),
+            Decimal("0"),
+        )
+
+        return Response(
+            {
+                "plan": plan.id,
+                "tage": tage,
+                "je_tag": [
+                    {
+                        "shift_type": art.id,
+                        "name": art.name,
+                        "short_code": art.short_code,
+                        "anzahl": bedarf.get(art.id, 0),
+                        "stunden": str(konto_stunden(art)),
+                    }
+                    for art in arten
+                    if bedarf.get(art.id, 0)
+                ],
+                "stunden_tag": str(stunden_tag),
+                "stunden_monat": str(stunden_tag * tage),
+                "kapazitaet_monat": str(kapazitaet),
+                "personen": len(team),
             }
         )
 

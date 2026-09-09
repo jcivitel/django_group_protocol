@@ -13,12 +13,21 @@ Einrichtungen zur Betreuung von Personen dürfen sonntags arbeiten lassen
 """
 
 from datetime import date, time, timedelta
+from decimal import Decimal
 
+from django.contrib.auth.models import User
 from django.test import TestCase
 
 from django_grp_backend.models import Group
 from django_grp_duty.autofill import autofill_plan
-from django_grp_duty.models import DutyPlan, Shift, ShiftType
+from django_grp_duty.bedarf import tagesbedarf
+from django_grp_duty.models import (
+    DutyPlan,
+    Shift,
+    ShiftType,
+    StaffingRequirement,
+)
+from django_grp_duty.services import generate_shifts
 from django_grp_duty.rules import (
     MAX_CONSECUTIVE_DAYS,
     check_plan,
@@ -30,6 +39,7 @@ from django_grp_org.models import (
     Facility,
     Provider,
     Site,
+    WorkTimeModel,
 )
 
 
@@ -267,3 +277,344 @@ class AutofillSerieTestCase(DienstplanMixin, TestCase):
             if verstoss.rule == "consecutive_days"
         ]
         self.assertEqual(serien, [])
+
+
+class OffeneDiensteTest(TestCase):
+    """
+    Ein leerer Platz ist nur dann eine Luecke, wenn die Zeit auch wirklich
+    unbesetzt bleibt.
+
+    Der 24-Stunden-Dienst ist der Anlass: wer ihn uebernimmt, deckt Tag und
+    Nacht ab. Der Generator legt trotzdem je Dienstart einen Platz an, weil
+    beim Anlegen noch nicht feststeht, wie besetzt wird - und danach stand
+    an jedem solchen Tag "Nachtbereitschaft ist nicht besetzt".
+    """
+
+    def setUp(self):
+        self.provider = Provider.objects.create(name="Träger")
+        self.site = Site.objects.create(provider=self.provider, name="Haus")
+        self.facility = Facility.objects.create(site=self.site, name="Einrichtung")
+        self.department = Department.objects.create(
+            facility=self.facility, name="Wohngruppe", minimum_staff=1
+        )
+        self.tag = ShiftType.objects.create(
+            provider=self.provider, name="Tagdienst", short_code="T",
+            start_time=time(10, 0), end_time=time(20, 30),
+        )
+        self.nacht = ShiftType.objects.create(
+            provider=self.provider, name="Nachtbereitschaft", short_code="N",
+            start_time=time(20, 0), end_time=time(10, 30),
+            is_night=True, on_call_minutes=360,
+        )
+        self.rund = ShiftType.objects.create(
+            provider=self.provider, name="24er", short_code="24",
+            start_time=time(10, 0), end_time=time(9, 59),
+            is_night=True, on_call_minutes=360,
+        )
+        self.person = Employee.objects.create(
+            provider=self.provider, first_name="Rafa", last_name="Schmitz",
+            hired_on=date(2020, 1, 1),
+        )
+        self.plan = DutyPlan.objects.create(
+            department=self.department, year=2026, month=9
+        )
+
+    def _befunde(self, regel: str):
+        return [v for v in check_plan(self.plan) if v.rule == regel]
+
+    def test_leerer_platz_ohne_deckung_bleibt_ein_fehler(self):
+        Shift.objects.create(
+            plan=self.plan, date=date(2026, 9, 10), shift_type=self.tag
+        )
+
+        fehler = self._befunde("open_shift")
+
+        self.assertEqual(len(fehler), 1)
+        self.assertEqual(fehler[0].severity, "error")
+        # Die Meldung sagt jetzt, wie viel Zeit offen bleibt.
+        self.assertIn("10 h 30 min", fehler[0].message)
+
+    def test_der_24er_deckt_den_leeren_tagdienst(self):
+        """
+        Der Plan haelt je Dienstart einen Platz bereit. Wer den
+        24-Stunden-Dienst besetzt, laesst Tag und Nacht leer stehen - und das
+        ist keine Luecke, sondern der Normalfall.
+        """
+        tag = date(2026, 9, 10)
+        Shift.objects.create(
+            plan=self.plan, date=tag, shift_type=self.rund, employee=self.person
+        )
+        Shift.objects.create(plan=self.plan, date=tag, shift_type=self.tag)
+
+        self.assertEqual(self._befunde("open_shift"), [])
+
+    def test_zwei_aufeinanderfolgende_24er_decken_die_nacht(self):
+        """
+        Der 24er endet um 09:59, der naechste beginnt um 10:00. Die
+        Nachtbereitschaft laeuft bis 10:30 - die Minute dazwischen darf
+        nicht als Luecke zaehlen.
+        """
+        for tag in (date(2026, 9, 10), date(2026, 9, 11)):
+            Shift.objects.create(
+                plan=self.plan, date=tag, shift_type=self.rund, employee=self.person
+            )
+        Shift.objects.create(
+            plan=self.plan, date=date(2026, 9, 10), shift_type=self.nacht
+        )
+
+        self.assertEqual(self._befunde("open_shift"), [])
+
+    def test_ein_einzelner_24er_laesst_den_naechsten_morgen_offen(self):
+        """
+        Ohne Folgetag bleibt nach 09:59 tatsaechlich Zeit unbesetzt - und
+        das soll die Pruefung auch sagen.
+        """
+        Shift.objects.create(
+            plan=self.plan, date=date(2026, 9, 10), shift_type=self.rund,
+            employee=self.person,
+        )
+        Shift.objects.create(
+            plan=self.plan, date=date(2026, 9, 10), shift_type=self.nacht
+        )
+
+        self.assertEqual(len(self._befunde("open_shift")), 1)
+
+
+class TagesbedarfTest(TestCase):
+    """
+    Was ein Tag wirklich braucht.
+
+    Der Anlass: bei Tagdienst, 24-Stunden-Dienst und Nachtbereitschaft legte
+    der Generator drei Plaetze taeglich an. Das sind rund 1440 Dienststunden
+    im Monat gegen 860, die sechs Mitarbeitende zusammen vertraglich haben -
+    der Plan begann mit einer Ueberlast, die keine Besetzung auffangen kann.
+    """
+
+    def setUp(self):
+        self.provider = Provider.objects.create(name="Träger")
+        self.site = Site.objects.create(provider=self.provider, name="Haus")
+        self.facility = Facility.objects.create(site=self.site, name="Einrichtung")
+        self.department = Department.objects.create(
+            facility=self.facility, name="Wohngruppe", minimum_staff=1
+        )
+        self.tag = ShiftType.objects.create(
+            provider=self.provider, name="Tagdienst", short_code="T",
+            start_time=time(10, 0), end_time=time(20, 30),
+        )
+        self.nacht = ShiftType.objects.create(
+            provider=self.provider, name="Nachtbereitschaft", short_code="N",
+            start_time=time(20, 0), end_time=time(10, 30),
+            is_night=True, on_call_minutes=360,
+        )
+        self.rund = ShiftType.objects.create(
+            provider=self.provider, name="24er", short_code="24",
+            start_time=time(10, 0), end_time=time(9, 59),
+            is_night=True, on_call_minutes=360,
+        )
+        self.arten = [self.tag, self.nacht, self.rund]
+
+    def _fenster(self, von, bis, personen=1):
+        return StaffingRequirement.objects.create(
+            department=self.department, starts_at=von, ends_at=bis,
+            minimum_staff=personen, minimum_specialists=1,
+        )
+
+    def test_ohne_vorgabe_bleibt_es_bei_einem_platz_je_art(self):
+        """Ohne Vorgabe gibt es nichts zu rechnen - das alte Verhalten."""
+        bedarf = tagesbedarf(self.department, self.arten)
+
+        self.assertEqual(bedarf, {a.id: 1 for a in self.arten})
+
+    def test_der_24er_allein_deckt_beide_fenster(self):
+        """
+        Der Fall aus der Praxis: eine Person von 10 bis 20 Uhr, eine von 20
+        bis 10 Uhr. Ein 24-Stunden-Dienst erfuellt beides mit 23,5 Stunden,
+        Tag plus Nacht braeuchten zwei Menschen und 24 Stunden.
+        """
+        self._fenster(time(10, 0), time(20, 0))
+        self._fenster(time(20, 0), time(10, 0))
+
+        bedarf = tagesbedarf(self.department, self.arten)
+
+        self.assertEqual(bedarf[self.rund.id], 1)
+        self.assertEqual(bedarf[self.tag.id], 0)
+        self.assertEqual(bedarf[self.nacht.id], 0)
+
+    def test_ohne_24er_bleiben_tag_und_nacht(self):
+        """Fehlt die guenstige Kombination, muss die teurere herhalten."""
+        self._fenster(time(10, 0), time(20, 0))
+        self._fenster(time(20, 0), time(10, 0))
+
+        bedarf = tagesbedarf(self.department, [self.tag, self.nacht])
+
+        self.assertEqual(bedarf[self.tag.id], 1)
+        self.assertEqual(bedarf[self.nacht.id], 1)
+
+    def test_zwei_personen_am_tag_brauchen_zwei_plaetze(self):
+        """Die Vorgabe ist ein Minimum, keine Obergrenze - aber sie gilt."""
+        self._fenster(time(10, 0), time(20, 0), personen=2)
+        self._fenster(time(20, 0), time(10, 0))
+
+        bedarf = tagesbedarf(self.department, self.arten)
+        belegt_am_tag = bedarf[self.rund.id] + bedarf[self.tag.id]
+
+        self.assertGreaterEqual(belegt_am_tag, 2)
+
+    def test_eine_halbe_stunde_ueberschneidung_deckt_die_nacht_nicht(self):
+        """
+        Der Tagdienst endet um 20:30 und ragt damit in das Nachtfenster.
+        Das macht aus ihm keine Nachtbesetzung - sonst waere die guenstigste
+        Antwort ein einzelner Tagdienst, und nachts waere niemand da.
+        """
+        self._fenster(time(20, 0), time(10, 0))
+
+        bedarf = tagesbedarf(self.department, [self.tag, self.nacht])
+
+        self.assertEqual(bedarf[self.tag.id], 0)
+        self.assertEqual(bedarf[self.nacht.id], 1)
+
+    def test_vorgabe_je_dienstart_gilt_weiterhin(self):
+        StaffingRequirement.objects.create(
+            department=self.department, shift_type=self.tag,
+            minimum_staff=2, minimum_specialists=1,
+        )
+
+        bedarf = tagesbedarf(self.department, self.arten)
+
+        self.assertEqual(bedarf[self.tag.id], 2)
+
+    def test_der_generator_legt_jede_dienstart_an(self):
+        """
+        Angelegt wird jede gewaehlte Dienstart an jedem Tag: der Plan haelt
+        Plaetze bereit, er schreibt nicht vor, welche besetzt werden. Wer im
+        Kalender jemanden in den Spaetdienst ziehen will, braucht dort eine
+        Zeile.
+        """
+        self._fenster(time(10, 0), time(20, 0))
+        self._fenster(time(20, 0), time(10, 0))
+        plan = DutyPlan.objects.create(
+            department=self.department, year=2026, month=9
+        )
+
+        angelegt = generate_shifts(plan, self.arten)
+
+        self.assertEqual(angelegt, 90)
+        self.assertEqual(
+            set(plan.shifts.values_list("shift_type_id", flat=True)),
+            {a.id for a in self.arten},
+        )
+
+
+class AutofillKombinationTest(TestCase):
+    """
+    Der Automat entscheidet je Tag, WELCHE Plaetze er besetzt.
+
+    Der Plan haelt je Dienstart einen Platz bereit. Wer stur alle besetzt,
+    verplant bei Tagdienst, 24-Stunden-Dienst und Nachtbereitschaft mehr
+    Stunden, als das Team hat - und am Monatsende haben alle Ueberstunden.
+    """
+
+    def setUp(self):
+        self.provider = Provider.objects.create(name="Träger")
+        self.site = Site.objects.create(provider=self.provider, name="Haus")
+        self.facility = Facility.objects.create(site=self.site, name="Einrichtung")
+        self.gruppe = Group.objects.create(name="Wohngruppe")
+        self.department = Department.objects.create(
+            facility=self.facility, name="Wohngruppe", minimum_staff=1,
+            group=self.gruppe,
+        )
+        self.tag = ShiftType.objects.create(
+            provider=self.provider, name="Tagdienst", short_code="T",
+            start_time=time(10, 0), end_time=time(20, 30),
+        )
+        self.nacht = ShiftType.objects.create(
+            provider=self.provider, name="Nachtbereitschaft", short_code="N",
+            start_time=time(20, 0), end_time=time(10, 30),
+            is_night=True, on_call_minutes=360,
+        )
+        self.rund = ShiftType.objects.create(
+            provider=self.provider, name="24er", short_code="24",
+            start_time=time(10, 0), end_time=time(9, 59),
+            is_night=True, on_call_minutes=360,
+        )
+        # Eine Person in jedem Fenster reicht - das Minimum, wie im Haus.
+        for von, bis in [(time(10, 0), time(20, 0)), (time(20, 0), time(10, 0))]:
+            StaffingRequirement.objects.create(
+                department=self.department, starts_at=von, ends_at=bis,
+                minimum_staff=1, minimum_specialists=0,
+            )
+
+        modell = WorkTimeModel.objects.create(
+            provider=self.provider, name="Vollzeit", weekly_hours=Decimal("39"),
+        )
+        for nummer in range(8):
+            konto = User.objects.create_user(username=f"kraft{nummer}")
+            self.gruppe.group_members.add(konto)
+            Employee.objects.create(
+                provider=self.provider, user=konto,
+                first_name="Kraft", last_name=str(nummer),
+                hired_on=date(2020, 1, 1), work_time_model=modell,
+            )
+
+        self.plan = DutyPlan.objects.create(
+            department=self.department, year=2026, month=9
+        )
+        generate_shifts(self.plan, [self.tag, self.nacht, self.rund])
+
+    def test_nicht_jeder_platz_wird_besetzt(self):
+        """
+        30 Tage mal drei Plaetze sind 90. Das Team hat acht Vollzeitkraefte
+        und damit rund 1370 Monatsstunden; alle 90 Plaetze waeren gut 1200
+        Kontostunden - besetzt wird davon, was gebraucht wird, nicht alles.
+        """
+        ergebnis = autofill_plan(self.plan)
+
+        besetzt = self.plan.shifts.filter(employee__isnull=False).count()
+        self.assertEqual(self.plan.shifts.count(), 90)
+        self.assertLess(besetzt, 90)
+        self.assertGreater(besetzt, 30)
+
+    def test_keine_luecke_bleibt_offen(self):
+        """Was leer bleibt, ist nicht gebraucht - nicht vergessen."""
+        autofill_plan(self.plan)
+
+        self.assertEqual(
+            [v for v in check_plan(self.plan) if v.rule == "open_shift"], []
+        )
+
+    def test_niemand_bekommt_grobe_ueberstunden(self):
+        """
+        Der eigentliche Zweck. Vorher lagen die Leute bei 150 bis 250 Prozent
+        ihres Solls, weil jeder Platz besetzt wurde.
+        """
+        ergebnis = autofill_plan(self.plan)
+
+        for zeile in ergebnis["hours"]:
+            soll = Decimal(zeile["target"])
+            ist = Decimal(zeile["planned"])
+            if not soll:
+                continue
+            self.assertLess(
+                ist / soll, Decimal("1.25"),
+                f"{zeile['name']} kommt auf {ist} von {soll} Stunden.",
+            )
+
+    def test_die_kombination_wechselt(self):
+        """
+        Mal Tag und Nacht, mal der 24-Stunden-Dienst - je nachdem, wer noch
+        Stunden braucht. Immer dieselbe Kombination waere ein Zeichen, dass
+        die Rechnung gar nicht greift.
+        """
+        autofill_plan(self.plan)
+
+        muster = {
+            tuple(sorted(
+                dienst.shift_type.short_code
+                for dienst in self.plan.shifts.filter(
+                    date=tag, employee__isnull=False
+                ).select_related("shift_type")
+            ))
+            for tag in {d.date for d in self.plan.shifts.all()}
+        }
+
+        self.assertGreater(len(muster), 1)
