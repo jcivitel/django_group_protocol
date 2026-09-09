@@ -139,6 +139,11 @@ WATCHED = {
     "django_grp_backend.ProtocolObservation",
     "django_grp_backend.ProtocolAttendance",
     "django_grp_backend.ProtocolPresence",
+    # Zeitbuchungen. Sie sind die Grundlage der Lohnabrechnung und des
+    # Zeitkontos: wer eine gebuchte Zeit nachtraeglich verschiebt, verschiebt
+    # bezahlte Arbeitszeit. Das ist genau die Frage, auf die ein
+    # Aenderungsprotokoll antworten soll.
+    "django_grp_duty.TimeEntry",
 }
 
 # Klartext statt Modellpfad.
@@ -173,6 +178,7 @@ KLARTEXT = {
     "django_grp_backend.ProtocolObservation": "Verlaufseintrag",
     "django_grp_backend.ProtocolAttendance": "Teilnahme",
     "django_grp_backend.ProtocolPresence": "Anwesenheit",
+    "django_grp_duty.TimeEntry": "Zeitbuchung",
 }
 
 
@@ -182,10 +188,17 @@ def klartext(pfad: str) -> str:
         return KLARTEXT[pfad]
     return pfad.rsplit(".", 1)[-1]
 
-# Bewusst NICHT beobachtet: Dienste und Zeitbuchungen (Shift, TimeEntry,
-# Absence). Sie entstehen zu Tausenden, tragen eigene Zeitstempel und würden
-# das Änderungsprotokoll so voll schreiben, dass die Einträge oben darin
-# nicht mehr zu finden wären.
+# Bewusst NICHT beobachtet: Dienste und Abwesenheiten (Shift, Absence). Ein
+# Dienstplan wird beim Erzeugen in einem Zug mit Hunderten Diensten gefüllt,
+# und jeder einzelne davon im Änderungsprotokoll wäre keine Nachvollzieh-
+# barkeit, sondern Rauschen — die Einträge, um die es geht, stünden danach
+# nicht mehr oben.
+#
+# Die Zeitbuchung ist der Fall, der trotz derselben Menge dazugehört: sie
+# entsteht einzeln, an ihr hängt das Zeitkonto, und wer sie nachträglich
+# verschiebt, verschiebt bezahlte Arbeitszeit. Wie beim Protokoll ist die
+# Frage "wer hat das wann geändert" hier berechtigt, und ohne Eintrag gab es
+# darauf keine Antwort.
 #
 # Die Aufbewahrungsfrist ist die Bedingung dafür, dass die Protokolldomäne
 # überhaupt aufgenommen werden konnte: AUDIT_RETENTION_DAYS, umgesetzt in
