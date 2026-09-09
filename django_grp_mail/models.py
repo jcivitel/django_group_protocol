@@ -97,10 +97,36 @@ class MailSettings(models.Model):
 
     @classmethod
     def laden(cls) -> "MailSettings":
-        """Der eine Datensatz, notfalls frisch angelegt."""
+        """
+        Der eine Datensatz, notfalls frisch angelegt — samt Schluesselpaar.
+
+        Die VAPID-Schluessel entstehen hier und nicht auf Knopfdruck. Sie
+        sind kein Einrichtungsschritt, sondern eine technische Voraussetzung:
+        es gibt nichts zu entscheiden, nichts einzutragen und nichts falsch
+        zu machen. Ein Knopf dafuer war eine Frage an die Verwaltung, auf die
+        es nur eine Antwort gab — und solange sie nicht gedrueckt hatte,
+        konnte niemand sein Geraet anmelden, ohne zu verstehen, warum.
+
+        Das Wechseln der Schluessel bleibt ausdruecklich: dabei verlieren
+        alle bestehenden Anmeldungen ihre Gueltigkeit, und das ist eine echte
+        Entscheidung. Siehe `PushKeysView`.
+        """
         eintrag = cls.objects.order_by("id").first()
         if eintrag is None:
             eintrag = cls.objects.create()
+        if not eintrag.has_vapid_keys:
+            from .push import schluesselpaar
+
+            privat, oeffentlich = schluesselpaar()
+            eintrag.vapid_private_key = privat
+            eintrag.vapid_public_key = oeffentlich
+            eintrag.save(
+                update_fields=[
+                    "vapid_private_key_encrypted",
+                    "vapid_public_key",
+                    "updated_at",
+                ]
+            )
         return eintrag
 
     @property
@@ -163,6 +189,7 @@ class MailMessage(models.Model):
         ("plan_published", "Dienstplan veröffentlicht"),
         ("swap", "Diensttausch"),
         ("todo_due", "Aufgabe wird fällig"),
+        ("password_reset", "Passwort zurücksetzen"),
     ]
 
     to_address = models.EmailField(verbose_name="Empfänger")

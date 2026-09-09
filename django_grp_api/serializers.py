@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 
+from django_grp_backend.access import ADMIN, SPECIALIST, access_level, employee_of
 from django_grp_backend.models import (
     Protocol,
     ProtocolAttendance,
@@ -13,8 +14,34 @@ from django_grp_backend.models import (
     Resident,
     ResidentContact,
     ProtocolPresence,
-    UserPermission,
 )
+
+
+class EigeneGruppeMixin:
+    """
+    Bindet ein schreibbares `group`-Feld an die Gruppen des Kontos.
+
+    Ohne das laesst sich ein Protokoll oder ein Bewohner beim Anlegen einer
+    fremden Gruppe zuordnen - die Nummer steht im Rumpf der Anfrage, und
+    niemand hat sie geprueft. Das ViewSet filtert nur, was es HERAUSgibt
+    (get_queryset), nicht was hineingeschrieben wird. Genau diese Luecke
+    waren S1 und S2 der Analyse.
+
+    Die Pruefung sitzt im Serializer und nicht im View, weil sie damit fuer
+    jeden Weg gilt: anlegen, aendern, Sammelimport.
+    """
+
+    def validate_group(self, group):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not getattr(user, "is_authenticated", False):
+            raise serializers.ValidationError("Nicht angemeldet.")
+
+        if not Group.objects.for_user(user).filter(id=group.id).exists():
+            raise serializers.ValidationError(
+                "Diese Gruppe steht dir nicht offen."
+            )
+        return group
 
 
 class ProtocolItemSerializer(serializers.ModelSerializer):
@@ -43,7 +70,7 @@ class ProtocolTodoSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at", "protocol"]
 
 
-class ProtocolSerializer(serializers.ModelSerializer):
+class ProtocolSerializer(EigeneGruppeMixin, serializers.ModelSerializer):
     items = ProtocolItemSerializer(many=True, required=False)
     exported_file = serializers.SerializerMethodField()
 
@@ -60,15 +87,12 @@ class ProtocolSerializer(serializers.ModelSerializer):
             "template",
             "topic",
         ]
-
-    def to_representation(self, instance):
-        """Override to handle both real and demo objects."""
-        # Ensure pk is set for serialization
-        if not hasattr(instance, "_state"):
-            # Demo object - add minimal _state to make it compatible
-            instance._state = type("State", (), {"db": None})()
-
-        return super().to_representation(instance)
+        # `exported` ist eine Folge des Status, keine Eingabe. Schreibbar
+        # liess sich ein Entwurf als exportiert kennzeichnen, ohne dass die
+        # Sperre gegriffen haette - die prueft `status`. Zwei Felder, die
+        # dasselbe meinen und auseinanderlaufen koennen, sind eine Luecke,
+        # auch wenn sie erst der uebernaechste Codepfad aufreisst.
+        read_only_fields = ["exported"]
 
     def get_exported_file(self, obj):
         """Return full URL for exported file if available."""
@@ -130,22 +154,19 @@ class GroupSerializer(serializers.ModelSerializer):
             "color",
         ]
 
-    def to_representation(self, instance):
-        """Override to handle both real and demo objects."""
-        # Ensure pk is set for serialization
-        if not hasattr(instance, "_state"):
-            # Demo object - add minimal _state to make it compatible
-            instance._state = type("State", (), {"db": None})()
-
-        return super().to_representation(instance)
-
     def get_members(self, obj):
-        """Get residents in this group."""
+        """
+        Bewohner dieser Gruppe.
+
+        Ueber die Rueckbeziehung statt ueber eine eigene Abfrage: das ViewSet
+        laedt sie mit prefetch_related("resident_set") vor, und damit kostet
+        die Liste eine Abfrage statt einer je Gruppe (Analyse 6.7, N+1).
+        """
         try:
-            residents = Resident.objects.filter(group=obj.id)
-            return ResidentSerializer(residents, many=True, context=self.context).data
+            return ResidentSerializer(
+                obj.resident_set.all(), many=True, context=self.context
+            ).data
         except (AttributeError, TypeError):
-            # If it fails, return empty list
             return []
 
     def update(self, instance, validated_data):
@@ -160,7 +181,7 @@ class GroupSerializer(serializers.ModelSerializer):
         return instance
 
 
-class ResidentSerializer(serializers.ModelSerializer):
+class ResidentSerializer(EigeneGruppeMixin, serializers.ModelSerializer):
     picture = serializers.SerializerMethodField()
 
     class Meta:
@@ -229,15 +250,6 @@ class ResidentPictureUploadSerializer(serializers.ModelSerializer):
         fields = ["id", "picture"]
         read_only_fields = ["id"]
 
-    def to_representation(self, instance):
-        """Override to handle both real and demo objects."""
-        # Ensure pk is set for serialization
-        if not hasattr(instance, "_state"):
-            # Demo object - add minimal _state to make it compatible
-            instance._state = type("State", (), {"db": None})()
-
-        return super().to_representation(instance)
-
     def get_picture(self, obj):
         """Return full URL for resident picture if available."""
         try:
@@ -258,7 +270,23 @@ class ItemSerializer(serializers.ModelSerializer):
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
-    """Serializer for authenticated user's profile information."""
+    """
+    Das eigene Profil - lesen und den Namen aendern.
+
+    Die E-Mail-Adresse steht hier bewusst nur lesend.
+
+    Sie ist in dieser Anwendung kein Kontaktfeld, sondern ein Zugang: mit
+    ihr laesst sich anmelden (UsernameOrEmailBackend) und ueber sie laeuft
+    das Zuruecksetzen des Passworts. Wer sie selbst aendern kann, kann sein
+    Konto auf eine Adresse umhaengen, die er woanders kontrolliert - und
+    hinterher fuehrt der Weg zurueck ueber "Passwort vergessen" dorthin.
+    Bei einem Tippfehler faellt dasselbe ohne boese Absicht an: die Person
+    sperrt sich aus und merkt es erst, wenn sie das Passwort braucht.
+
+    Beides gehoert an eine Stelle, an der jemand hinsieht. Aendern kann die
+    Adresse deshalb die Verwaltung (UserAdminDetailView), und die Pruefung
+    auf Doppelvergabe steht dort.
+    """
 
     groups = serializers.SerializerMethodField()
 
@@ -278,6 +306,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "username",
+            "email",
             "date_joined",
             "is_staff",
             "is_superuser",
@@ -307,21 +336,34 @@ class UserGroupPermissionSerializer(serializers.ModelSerializer):
         ]
 
     def get_permissions(self, obj):
-        """Get user permissions for this group."""
+        """
+        Was dieses Konto in dieser Gruppe darf.
+
+        Frueher stand hier `can_edit = is_member or is_staff` - die Stufe
+        "Aushilfe / Azubi" kam schlicht nicht vor. Das Frontend zeigte
+        Bearbeiten-Knoepfe, die serverseitig in ein 403 liefen. Jetzt
+        antwortet diese Stelle mit derselben Regel, die auch durchgesetzt
+        wird: access_level plus Mitgliedschaft.
+        """
         request = self.context.get("request")
         if not request:
             return {}
 
         user = request.user
         is_member = obj.group_members.filter(id=user.id).exists()
-        is_staff = user.is_staff
+        stufe = access_level(user)
+        darf_verwalten = stufe == ADMIN or bool(getattr(user, "is_superuser", False))
+        darf_schreiben = darf_verwalten or (stufe == SPECIALIST and is_member)
 
         return {
             "is_member": is_member,
-            "is_staff": is_staff,
-            "can_view": is_member or is_staff,
-            "can_edit": is_member or is_staff,
-            "can_delete": is_staff,
+            "is_staff": darf_verwalten,
+            "access_level": stufe,
+            "can_view": is_member or darf_verwalten,
+            "can_edit": darf_schreiben,
+            # Loeschen kaskadiert auf Bewohner UND Protokolle. Das bleibt
+            # der Verwaltung vorbehalten.
+            "can_delete": darf_verwalten,
         }
 
     def get_resident_count(self, obj):
@@ -333,6 +375,7 @@ class UserDetailedProfileSerializer(serializers.ModelSerializer):
     """Serializer for detailed authenticated user profile with group permissions."""
 
     groups_with_permissions = serializers.SerializerMethodField()
+    employee = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -346,6 +389,7 @@ class UserDetailedProfileSerializer(serializers.ModelSerializer):
             "is_superuser",
             "date_joined",
             "groups_with_permissions",
+            "employee",
         ]
         read_only_fields = [
             "id",
@@ -366,6 +410,36 @@ class UserDetailedProfileSerializer(serializers.ModelSerializer):
         )
         return serializer.data
 
+    def get_employee(self, obj):
+        """
+        Der eigene Personaldatensatz, sofern das Konto mit einem verknuepft
+        ist - sonst null.
+
+        Nur das Noetige: die Kennung, damit die Profilseite das eigene Foto
+        an /employee/{id}/picture/ schicken kann, und die Adresse des
+        Bildes, damit sie es anzeigen kann. Alles Weitere - Vertrag,
+        Personalnummer, Zeitkonto - steht unter Personal und gehoert nicht
+        in eine Antwort, die jede Seite dieser Anwendung mitliest.
+        """
+        employee = employee_of(obj)
+        if employee is None:
+            return None
+
+        request = self.context.get("request")
+        bild = None
+        if employee.picture:
+            bild = (
+                request.build_absolute_uri(employee.picture.url)
+                if request
+                else employee.picture.url
+            )
+
+        return {
+            "id": employee.id,
+            "full_name": employee.get_full_name(),
+            "picture": bild,
+        }
+
 
 class ProtocolPresenceSerializer(serializers.ModelSerializer):
     """Serializer for ProtocolPresence model."""
@@ -377,8 +451,17 @@ class ProtocolPresenceSerializer(serializers.ModelSerializer):
         fields = ["id", "protocol", "user", "user_name", "was_present"]
 
     def get_user_name(self, obj):
-        """Get full name of the user."""
-        return f"{obj.user.first_name} {obj.user.last_name}"
+        """
+        Anzeigename der Person.
+
+        Vorher stand hier stur "{Vorname} {Nachname}". Beim Konto aus dem
+        Einrichtungsassistenten sind beide leer, das Ergebnis war ein
+        einzelnes Leerzeichen - und im Protokoll und im PDF stand
+        "Benutzer #1". Der Benutzername ist kein schoener Name, aber ein
+        echter.
+        """
+        name = f"{obj.user.first_name} {obj.user.last_name}".strip()
+        return name or obj.user.get_username()
 
 
 class GroupPDFTemplateSerializer(serializers.ModelSerializer):
@@ -390,36 +473,11 @@ class GroupPDFTemplateSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "name"]
 
 
-class UserPermissionSerializer(serializers.ModelSerializer):
-    """Serializer for user permissions on specific resources."""
-
-    resource_display = serializers.CharField(
-        source="get_resource_display", read_only=True
-    )
-    permission_display = serializers.CharField(
-        source="get_permission_display", read_only=True
-    )
-
-    class Meta:
-        model = UserPermission
-        fields = [
-            "id",
-            "user",
-            "group",
-            "resource",
-            "resource_display",
-            "permission",
-            "permission_display",
-            "created_at",
-        ]
-        read_only_fields = ["id", "created_at"]
-
-
 class UserDetailSerializer(serializers.ModelSerializer):
     """Serializer for detailed user information with permissions."""
 
     groups = serializers.SerializerMethodField()
-    permissions = serializers.SerializerMethodField()
+    access_level = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -434,7 +492,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
             "is_active",
             "date_joined",
             "groups",
-            "permissions",
+            "access_level",
         ]
         read_only_fields = [
             "id",
@@ -450,10 +508,16 @@ class UserDetailSerializer(serializers.ModelSerializer):
             for group in Group.objects.filter(group_members=obj)
         ]
 
-    def get_permissions(self, obj):
-        """Get all permissions for this user."""
-        perms = UserPermission.objects.filter(user=obj)
-        return UserPermissionSerializer(perms, many=True).data
+    def get_access_level(self, obj):
+        """
+        Die Zugriffsstufe des Kontos.
+
+        Hier stand frueher die feingranulare Rechteliste (UserPermission).
+        Sie wurde von keinem einzigen Endpunkt ausgewertet - wer in der
+        Oberflaeche jemanden auf "nur lesen" stellte, aenderte damit nichts.
+        Was wirklich gilt, steht in django_grp_backend/access.py.
+        """
+        return access_level(obj)
 
 
 class UserStaffSerializer(serializers.ModelSerializer):
@@ -575,6 +639,16 @@ class ProtocolAttendanceSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "protocol"]
 
+    def validate_resident(self, resident):
+        """
+        Nur Bewohner der Gruppe, um die es geht.
+
+        `resident` kommt als Nummer aus dem Rumpf; ohne diese Pruefung liesse
+        sich eine fremde Bewohnerin als Teilnehmerin eintragen - und ihr Name
+        stuende danach in einem Protokoll, das sie nichts angeht.
+        """
+        return _resident_der_protokollgruppe(self, resident)
+
     def get_resident_name(self, obj):
         return obj.resident.get_full_name()
 
@@ -614,5 +688,36 @@ class ProtocolObservationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "protocol", "created_at", "updated_at"]
 
+    def validate_resident(self, resident):
+        """Wie bei der Teilnahme: kein Verlaufseintrag zu fremden Bewohnern."""
+        if resident is None:
+            return resident
+        return _resident_der_protokollgruppe(self, resident)
+
     def get_resident_name(self, obj):
         return obj.resident.get_full_name() if obj.resident else None
+
+
+def _resident_der_protokollgruppe(serializer, resident):
+    """
+    Prueft, dass ein Bewohner zur Gruppe des Protokolls gehoert.
+
+    Das Protokoll steht in der URL, nicht im Rumpf - das ViewSet legt es als
+    `protocol` im Context ab (siehe ProtocolScopedViewSet.get_serializer_context).
+    Fehlt es, bleibt als Rueckfallebene die Sichtbarkeit fuer das Konto.
+    """
+    request = serializer.context.get("request")
+    user = getattr(request, "user", None)
+    protocol = serializer.context.get("protocol")
+
+    if protocol is not None:
+        if resident.group_id != protocol.group_id:
+            raise serializers.ValidationError(
+                "Diese Person gehoert nicht zur Gruppe dieses Protokolls."
+            )
+        return resident
+
+    if user is not None and getattr(user, "is_authenticated", False):
+        if not Resident.objects.for_user(user).filter(id=resident.id).exists():
+            raise serializers.ValidationError("Diese Person steht dir nicht offen.")
+    return resident

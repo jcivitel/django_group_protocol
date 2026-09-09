@@ -8,17 +8,19 @@ Name und Qualifikation, nicht Vertrag oder Geburtsdatum.
 
 from decimal import Decimal
 
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Q
 
 from django_grp_backend.access import WriteNeedsRole, is_admin
 from django_grp_backend.functions import upload_too_large
-from .audit import AuditEvent
+from .audit import AuditEvent, klartext
 from .holiday_service import jahr_anlegen
 from .holidays import BUNDESLAENDER
 from .tenancy import limit_to_tenant, tenant_providers
@@ -798,12 +800,17 @@ class StaffingPlanView(APIView):
 
 class AuditEventSerializer(serializers.ModelSerializer):
     action_display = serializers.CharField(source="get_action_display", read_only=True)
+    # Klartext statt Modellpfad. In der Historie stand bisher
+    # "django_grp_backend.Resident" - richtig, aber fuer die Person, die dort
+    # nachliest, ohne Wert.
+    model_display = serializers.SerializerMethodField()
 
     class Meta:
         model = AuditEvent
         fields = [
             "id",
             "model",
+            "model_display",
             "object_id",
             "label",
             "action",
@@ -812,6 +819,9 @@ class AuditEventSerializer(serializers.ModelSerializer):
             "username",
             "created_at",
         ]
+
+    def get_model_display(self, obj) -> str:
+        return klartext(obj.model)
 
 
 class AuditEventViewSet(viewsets.ReadOnlyModelViewSet):
@@ -833,7 +843,77 @@ class AuditEventViewSet(viewsets.ReadOnlyModelViewSet):
         model = self.request.query_params.get("art")
         if model:
             queryset = queryset.filter(model=model)
+        # Seit die Protokolldomaene mitgeschrieben wird, ist die Tabelle
+        # deutlich voller. 500 reichten, solange nur Stammdaten darin
+        # standen; jetzt gehoert eine Suche dazu.
+        suche = (self.request.query_params.get("suche") or "").strip()
+        if suche:
+            queryset = queryset.filter(
+                Q(label__icontains=suche) | Q(username__icontains=suche)
+            )
         return queryset[:500]
+
+    @action(detail=False, methods=["get"], url_path="arten")
+    def arten(self, request):
+        """
+        Welche Datensatzarten im Protokoll vorkommen - mit Klartext.
+
+        Damit kann die Oberflaeche einen Filter anbieten, ohne die Liste der
+        beobachteten Modelle noch einmal zu fuehren.
+        """
+        if not request.user.is_staff:
+            return Response([], status=status.HTTP_200_OK)
+
+        pfade = (
+            AuditEvent.objects.order_by()
+            .values_list("model", flat=True)
+            .distinct()
+        )
+        daten = sorted(
+            ({"wert": pfad, "name": klartext(pfad)} for pfad in pfade),
+            key=lambda eintrag: eintrag["name"],
+        )
+        return Response(daten, status=status.HTTP_200_OK)
+
+
+class LivenessView(APIView):
+    """
+    Läuft der Prozess? (GET /api/livez/)
+
+    Antwortet, solange Python antwortet - ohne Datenbank, ohne Migrationen.
+    Genau das braucht ein Orchestrator, um zu entscheiden, ob er den Container
+    NEU STARTEN soll. Eine Datenbank, die gerade wegbleibt, ist kein Grund
+    dafür: der Neustart macht sie nicht zurück, kostet aber die Verbindungen
+    aller, die gerade arbeiten.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def get(self, request):
+        return Response({"status": "ok"}, status=200)
+
+
+class ReadinessView(APIView):
+    """
+    Kann die Anwendung arbeiten? (GET /api/readyz/)
+
+    Hier zählt, was für eine echte Anfrage gebraucht wird: die Datenbank
+    antwortet und die Migrationen sind durch. Antwortet sie mit 503, nimmt
+    der Lastverteiler die Instanz aus dem Verkehr - ohne sie zu töten.
+
+    Der Unterschied zu /livez/ ist der Unterschied zwischen „neu starten"
+    und „kurz nicht fragen". Vorher gab es nur /api/health/, das beides
+    vermischte.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def get(self, request):
+        return HealthView().get(request)
 
 
 class HealthView(APIView):
@@ -842,10 +922,14 @@ class HealthView(APIView):
 
     Ohne Anmeldung erreichbar, damit Monitoring-Systeme sie abfragen können -
     und bewusst ohne Fachdaten: nur, ob Datenbank und Anwendung antworten.
+
+    Bleibt als Sammelauskunft bestehen; für Orchestrierung sind /livez/ und
+    /readyz/ die richtigen Adressen.
     """
 
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = []
 
     def get(self, request):
         from django.db import connection

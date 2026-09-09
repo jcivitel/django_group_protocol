@@ -20,8 +20,20 @@ MIN_REST_HOURS = 11
 # § 3 ArbZG: werktäglich höchstens 10 Stunden.
 MAX_SHIFT_HOURS = Decimal("10")
 
-# Höchstens so viele Tage am Stück im Dienst.
-MAX_CONSECUTIVE_DAYS = 7
+# Höchstens so viele Tage am Stück im Dienst - danach muss ein freier Tag
+# kommen.
+#
+# Hier stand 7, und die Prüfung schlug erst darüber an. Damit ging eine
+# durchgearbeitete Woche - Montag bis Sonntag, kein freier Tag - glatt durch.
+# Genau das darf niemand.
+#
+# Sechs ist die Grenze, die sich aus dem Arbeitszeitgesetz ergibt: § 9 ArbZG
+# schreibt die Sonntagsruhe vor. Einrichtungen zur Betreuung von Personen -
+# also auch Wohngruppen - dürfen zwar sonntags arbeiten lassen (§ 10 Abs. 1
+# Nr. 3), müssen dafür aber einen Ersatzruhetag geben (§ 11 Abs. 3). Die
+# Woche hat damit sechs Arbeitstage, gleich auf welchen Wochentag der freie
+# fällt.
+MAX_CONSECUTIVE_DAYS = 6
 
 
 @dataclass
@@ -60,7 +72,7 @@ def check_plan(plan) -> list[Violation]:
     violations += _check_rest_periods(shifts)
     violations += _check_double_booking(shifts)
     violations += _check_absences(shifts)
-    violations += _check_consecutive_days(shifts)
+    violations += _check_consecutive_days(shifts, _umfeld(plan, shifts))
     violations += _check_staffing(plan, shifts)
     return violations
 
@@ -197,10 +209,67 @@ def _check_absences(shifts) -> list[Violation]:
     return out
 
 
-def _check_consecutive_days(shifts) -> list[Violation]:
+def _umfeld(plan, shifts) -> dict[int, set]:
+    """
+    Diensttage derselben Personen kurz vor und nach diesem Plan.
+
+    Ein Plan umfasst einen Monat. Ohne diesen Blick über den Rand endet jede
+    Serie am Monatsersten: wer vom 27. bis zum 31. Januar durcharbeitet und
+    am 1. Februar weitermacht, steht in zwei Plänen mit je einer kurzen,
+    unauffälligen Serie - und in Wahrheit seit acht Tagen im Dienst.
+
+    Geladen wird nur das nötige Fenster: so viele Tage, wie eine Serie lang
+    sein darf, in beide Richtungen.
+    """
+    from .models import Shift
+
+    tage = [shift.date for shift in shifts]
+    personen = {shift.employee_id for shift in shifts if shift.employee_id}
+    if not tage or not personen:
+        return {}
+
+    rand = timedelta(days=MAX_CONSECUTIVE_DAYS)
+    umfeld: dict[int, set] = defaultdict(set)
+    fremde = Shift.objects.filter(
+        employee_id__in=personen,
+        date__gte=min(tage) - rand,
+        date__lte=max(tage) + rand,
+    ).exclude(plan_id=plan.id)
+    for employee_id, datum in fremde.values_list("employee_id", "date"):
+        umfeld[employee_id].add(datum)
+    return umfeld
+
+
+def serie_um(tage: set, tag) -> int:
+    """
+    Wie viele Tage am Stück ergibt sich, wenn an `tag` gearbeitet wird?
+
+    Zählt in beide Richtungen - ein einzelner Tag zwischen zwei Serien
+    verbindet sie, und genau der Fall fällt sonst durch: für sich betrachtet
+    ist er nur ein Tag.
+    """
+    laenge = 1
+
+    vorher = tag - timedelta(days=1)
+    while vorher in tage:
+        laenge += 1
+        vorher -= timedelta(days=1)
+
+    nachher = tag + timedelta(days=1)
+    while nachher in tage:
+        laenge += 1
+        nachher += timedelta(days=1)
+
+    return laenge
+
+
+def _check_consecutive_days(shifts, umfeld=None) -> list[Violation]:
+    umfeld = umfeld or {}
     out = []
     for employee_id, entries in _by_employee(shifts).items():
-        days = sorted({shift.date for shift in entries})
+        days = sorted(
+            {shift.date for shift in entries} | set(umfeld.get(employee_id, ()))
+        )
         if not days:
             continue
 
@@ -218,11 +287,16 @@ def _check_consecutive_days(shifts) -> list[Violation]:
                 out.append(
                     Violation(
                         rule="consecutive_days",
-                        severity="warning",
+                        # Fehler, nicht Hinweis: das ist keine Frage des
+                        # Geschmacks, sondern der Ersatzruhetag aus § 11
+                        # Abs. 3 ArbZG.
+                        severity="error",
                         date=str(current),
                         message=(
-                            f"{name} arbeitet seit {streak_start:%d.%m.} durchgehend "
-                            f"{streak} Tage."
+                            f"{name} arbeitet seit {streak_start:%d.%m.} "
+                            f"{streak} Tage am Stück. Nach spätestens "
+                            f"{MAX_CONSECUTIVE_DAYS} Tagen muss ein freier Tag "
+                            f"kommen."
                         ),
                         employee_id=employee_id,
                     )

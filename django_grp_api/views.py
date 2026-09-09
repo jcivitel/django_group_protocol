@@ -1,17 +1,23 @@
+import logging
 import os
+from datetime import timedelta
 
 from PIL import Image
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db.models import Q
+from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import viewsets, status
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
+from .guards import ProtokollGesperrt, protokoll_fuer, schreibbares_protokoll
 from django_grp_backend.access import WriteNeedsRole, is_admin, may_read_only
 from django_grp_backend.functions import upload_too_large
 from django_grp_backend.models import (
@@ -25,7 +31,6 @@ from django_grp_backend.models import (
     ProtocolItem,
     ProtocolTemplate,
     ProtocolTodo,
-    UserPermission,
 )
 from .serializers import (
     ProtocolAttendanceSerializer,
@@ -45,8 +50,25 @@ from .serializers import (
     GroupPDFTemplateSerializer,
     UserStaffSerializer,
     UserDetailSerializer,
-    UserPermissionSerializer,
 )
+
+logger = logging.getLogger("django_grp.api")
+
+
+def serverfehler(vorgang: str, fehler: Exception) -> Response:
+    """
+    Ein unerwarteter Fehler, ohne Innereien nach aussen.
+
+    Vorher stand an gut einem Dutzend Stellen `{"error": str(e)}` - und damit
+    gingen Datenbankmeldungen, Dateipfade und Feldnamen an den Client (S9).
+    Was passiert ist, gehoert ins Log, wo es jemand lesen kann, der es
+    einordnen darf.
+    """
+    logger.exception("%s fehlgeschlagen: %s", vorgang, fehler)
+    return Response(
+        {"error": "Da ist etwas schiefgelaufen. Der Vorgang wurde protokolliert."},
+        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )
 
 
 class LoginView(APIView):
@@ -79,6 +101,10 @@ class LoginView(APIView):
     """
 
     permission_classes = [AllowAny]
+    # Ohne Bremse laesst sich hier eine Passwortliste durchprobieren, und
+    # niemand merkt es. Der Takt steht in settings.DEFAULT_THROTTLE_RATES.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
 
     def post(self, request):
         username = request.data.get("username")
@@ -137,7 +163,11 @@ class LogoutView(APIView):
     }
     """
 
-    permission_classes = [IsAuthenticated, WriteNeedsRole]
+    # Ohne WriteNeedsRole: Abmelden ist kein Schreibzugriff auf Fachdaten.
+    # Mit der Rechteklasse bekam eine Aushilfe beim Abmelden ein 403, das
+    # Cookie im Browser verschwand trotzdem - und der Token blieb
+    # serverseitig gueltig. Genau anders herum ist es richtig.
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         # Delete the user's authentication token
@@ -164,45 +194,60 @@ class ProtocolViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter protocols by user group membership or staff status."""
         user = self.request.user
-        return Protocol.objects.for_user(user)
-
-    def perform_create(self, serializer):
-        serializer.save()
+        return Protocol.objects.for_user(user).select_related("group")
 
     def perform_update(self, serializer):
         protocol = self.get_object()
-        # Prevent updates if protocol is exported (read-only)
+        # Ein exportiertes Protokoll ist ein abgeschlossenes Dokument.
         if protocol.status == "exported":
-            raise ValidationError(
-                "Exportierte Protokolle können nicht bearbeitet werden."
-            )
+            raise ProtokollGesperrt()
         serializer.save()
+
+    def perform_destroy(self, instance):
+        if instance.status == "exported":
+            raise ProtokollGesperrt()
+        instance.delete()
 
 
 class GroupViewSet(viewsets.ModelViewSet):
+    """
+    Gruppen anlegen, aendern, loeschen - Verwaltung vorbehalten.
+
+    Vorher trug diese Klasse nur WriteNeedsRole, und damit durfte jede
+    Fachkraft Gruppen anlegen UND loeschen. Loeschen kaskadiert auf alle
+    Bewohner und alle Protokolle der Gruppe (on_delete=CASCADE) - ein
+    Fehlgriff, der sich ueber die Oberflaeche nicht rueckgaengig machen
+    laesst. Lesen bleibt fuer alle Mitglieder offen.
+    """
+
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = GroupSerializer
 
     def get_queryset(self):
         """Filter groups by user membership or staff status."""
         user = self.request.user
-        return Group.objects.for_user(user)
+        # prefetch: GroupSerializer.get_members liest die Rueckbeziehung,
+        # sonst eine Abfrage je Gruppe.
+        return Group.objects.for_user(user).prefetch_related("resident_set")
 
-    def get_serializer(self, *args, **kwargs):
-        """
-        Enable partial updates for PUT requests.
-        Only provide fields that are not None.
-        """
-        if self.request.method in ["PUT", "PATCH"]:
-            kwargs["partial"] = True
-        return super().get_serializer(*args, **kwargs)
+    def _require_admin(self):
+        if not is_admin(self.request.user):
+            raise PermissionDenied(
+                "Gruppen anlegen, ändern und löschen ist der Verwaltung "
+                "vorbehalten."
+            )
+
+    def perform_create(self, serializer):
+        self._require_admin()
+        serializer.save()
 
     def perform_update(self, serializer: GroupSerializer) -> None:
-        """
-        Update group with partial data.
-        Only non-null fields are updated; null fields remain unchanged.
-        """
+        self._require_admin()
         serializer.save()
+
+    def perform_destroy(self, instance):
+        self._require_admin()
+        instance.delete()
 
 
 class ResidentViewSet(viewsets.ModelViewSet):
@@ -212,7 +257,7 @@ class ResidentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter residents by user group membership or staff status."""
         user = self.request.user
-        return Resident.objects.for_user(user)
+        return Resident.objects.for_user(user).select_related("group")
 
 
 class ResidentContactViewSet(viewsets.ModelViewSet):
@@ -263,31 +308,25 @@ class ProtocolScopedViewSet(viewsets.ModelViewSet):
 
     def get_protocol(self):
         """Protokoll aus der URL, sofern der Benutzer darauf zugreifen darf."""
-        protocol_id = self.kwargs.get("protocol_pk")
         try:
-            protocol = Protocol.objects.get(id=protocol_id)
-        except Protocol.DoesNotExist:
+            return protokoll_fuer(self.request.user, self.kwargs.get("protocol_pk"))
+        except (NotFound, PermissionDenied):
             return None
-
-        user = self.request.user
-        is_member = protocol.group.group_members.filter(id=user.id).exists()
-        if not is_member and not is_admin(user):
-            return None
-        return protocol
 
     def require_writable_protocol(self):
         """Wie get_protocol, wirft aber sprechende Fehler fuer Schreibzugriffe."""
-        protocol_id = self.kwargs.get("protocol_pk")
-        protocol = self.get_protocol()
-        if protocol is None:
-            raise ValidationError(
-                f"Protokoll mit ID {protocol_id} nicht gefunden oder kein Zugriff."
-            )
-        if protocol.status == "exported":
-            raise ValidationError(
-                "Exportierte Protokolle koennen nicht bearbeitet werden."
-            )
-        return protocol
+        return schreibbares_protokoll(self.request.user, self.kwargs.get("protocol_pk"))
+
+    def get_serializer_context(self):
+        """
+        Das Protokoll steht dem Serializer zur Verfuegung.
+
+        Er braucht es, um Fremdschluessel aus dem Rumpf gegen die Gruppe des
+        Protokolls zu pruefen - siehe _resident_der_protokollgruppe.
+        """
+        context = super().get_serializer_context()
+        context["protocol"] = self.get_protocol()
+        return context
 
     def get_queryset(self):
         protocol = self.get_protocol()
@@ -317,6 +356,69 @@ class ProtocolTodoViewSet(ProtocolScopedViewSet):
 
     serializer_class = ProtocolTodoSerializer
     model = ProtocolTodo
+
+
+class TodoCollectionView(APIView):
+    """
+    Alle Aufgaben in einem Zeitfenster - ueber alle zugaenglichen Protokolle.
+
+    GET /api/v1/todo/?von=2026-06-01&bis=2026-12-31
+
+    Warum es diesen Endpunkt gibt: die Uebersicht braucht die faelligen
+    Aufgaben aller Gruppen. Ohne Sammelabfrage faechert das Frontend auf und
+    stellt bis zu vierzig Einzelanfragen /protocol/{id}/todo/ - je eine
+    Verbindung, je ein Rundlauf, und alle nur, um am Ende eine Liste zu
+    bauen (Analyse 6.7).
+
+    Der Zeitraum ist Pflicht in dem Sinne, dass es eine Vorgabe gibt: 90 Tage
+    zurueck, 180 nach vorn. Ohne Fenster waere das ein "alles" ueber die
+    gesamte Betriebsdauer.
+    """
+
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
+
+    VORGABE_ZURUECK = 90
+    VORGABE_VORAUS = 180
+
+    def get(self, request):
+        heute = timezone.localdate()
+        von = self._datum(request.query_params.get("von")) or (
+            heute - timedelta(days=self.VORGABE_ZURUECK)
+        )
+        bis = self._datum(request.query_params.get("bis")) or (
+            heute + timedelta(days=self.VORGABE_VORAUS)
+        )
+
+        protokolle = Protocol.objects.for_user(request.user).filter(
+            protocol_date__gte=von, protocol_date__lte=bis
+        )
+
+        aufgaben = (
+            ProtocolTodo.objects.filter(protocol__in=protokolle)
+            .select_related("protocol", "protocol__group")
+            .order_by("when", "position")
+        )
+
+        daten = [
+            {
+                "id": aufgabe.id,
+                "protocol": aufgabe.protocol_id,
+                "protocol_date": aufgabe.protocol.protocol_date,
+                "group": aufgabe.protocol.group_id,
+                "what": aufgabe.what,
+                "who": aufgabe.who,
+                "when": aufgabe.when,
+                "position": aufgabe.position,
+            }
+            for aufgabe in aufgaben
+        ]
+        return Response(daten, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _datum(wert):
+        if not wert:
+            return None
+        return parse_date(wert)
 
 
 class ProtocolAttendanceViewSet(ProtocolScopedViewSet):
@@ -383,39 +485,30 @@ class ProtocolTemplateViewSet(viewsets.ModelViewSet):
 
 
 class ProtocolPresenceUpdateView(APIView):
+    """
+    Anwesenheit einer Fachkraft im Protokoll setzen.
+
+    POST /api/v1/presence/  {protocol, user, was_present}
+    """
+
     permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def post(self, request):
-        protocol_id = request.data.get("protocol")
+        protocol = schreibbares_protokoll(request.user, request.data.get("protocol"))
+
         user_id = request.data.get("user")
-        was_present = request.data.get("was_present")
-
-        # Check if protocol is exported
-        try:
-            protocol = Protocol.objects.get(id=protocol_id)
-            if protocol.status == "exported":
-                return Response(
-                    {"error": "Exportierte Protokolle können nicht bearbeitet werden."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            # Check access: user must be staff or member of protocol's group
-            is_member = protocol.group.group_members.filter(id=request.user.id).exists()
-            if not is_member and not is_admin(request.user):
-                return Response(
-                    {"error": "You do not have permission to access this protocol"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-        except Protocol.DoesNotExist:
-            return Response(
-                {"error": "Protocol not found"},
-                status=status.HTTP_404_NOT_FOUND,
+        # Nur wer zur Gruppe gehoert, kann in ihrer Anwesenheitsliste stehen.
+        # Ohne diese Pruefung liesse sich eine beliebige Kontonummer
+        # eintragen - und stuende danach im PDF als anwesend.
+        if not protocol.group.group_members.filter(id=user_id).exists():
+            raise ValidationError(
+                "Diese Person gehört nicht zum Team dieser Gruppe."
             )
 
         obj, created = ProtocolPresence.objects.update_or_create(
-            protocol_id=protocol_id,
+            protocol=protocol,
             user_id=user_id,
-            defaults={"was_present": was_present},
+            defaults={"was_present": bool(request.data.get("was_present"))},
         )
 
         return Response(
@@ -428,123 +521,96 @@ class ProtocolPresenceUpdateView(APIView):
 
 
 class ItemValuesUpdateView(APIView):
+    """
+    Tagesordnungspunkt anlegen, aendern oder loeschen.
+
+    Die Sicherheitsluecke, die hier lag (S3 der Analyse): geprueft wurde der
+    Zugriff auf `protocol` aus dem Rumpf - geschrieben wurde danach mit
+    `ProtocolItem.objects.filter(id=item_id).update(...)`, also ohne jeden
+    Bezug zu diesem Protokoll. Wer Zugriff auf irgendein Protokoll hatte,
+    konnte damit Eintraege JEDES Protokolls ueberschreiben und loeschen.
+
+    Jetzt entscheidet nicht mehr die Nummer im Rumpf, sondern das Paar: der
+    Eintrag muss zu dem Protokoll gehoeren, auf das der Zugriff geprueft
+    wurde.
+    """
+
     permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def post(self, request):
         serializer = ItemSerializer(data=request.data)
-        if serializer.is_valid():
-            item_id = request.data.get("id") or request.data.get("item_id")
-            name = serializer.data.get("name")
-            protocol_id = serializer.data.get("protocol")
-            value = serializer.data.get("value")
-            position = serializer.data.get("position")
+        if not serializer.is_valid():
+            # Vorher stand hier data="message: serializer.errors" - der
+            # String, nicht sein Inhalt. Im Frontend kam damit nie ein
+            # brauchbarer Feldfehler an.
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-            # Check if protocol is exported
-            try:
-                protocol = Protocol.objects.get(id=protocol_id)
-                if protocol.status == "exported":
-                    return Response(
-                        {
-                            "error": "Exportierte Protokolle können nicht bearbeitet werden."
-                        },
-                        status=status.HTTP_403_FORBIDDEN,
-                    )
+        item_id = request.data.get("id") or request.data.get("item_id")
+        if item_id == "":
+            item_id = None
 
-                # Check access: user must be staff or member of protocol's group
-                is_member = protocol.group.group_members.filter(
-                    id=request.user.id
-                ).exists()
-                if not is_member and not is_admin(request.user):
-                    return Response(
-                        {"error": "You do not have permission to access this protocol"},
-                        status=status.HTTP_403_FORBIDDEN,
-                    )
-            except Protocol.DoesNotExist:
-                return Response(
-                    {"error": "Protocol not found"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-
-            if item_id == "":
-                item_id = None
-
-            felder = {
-                "protocol_id": protocol_id,
-                "name": name,
-                "value": value,
-                "position": position,
-            }
-
-            # kind und data nur uebernehmen, wenn sie mitgeschickt wurden.
-            #
-            # Sie fehlten hier ganz - und damit ging jede Tabelle verloren.
-            # Wer aus dem Menue "Eintrag hinzufuegen" eine Aufgabenliste oder
-            # einen Massnahmenplan waehlte und speicherte, bekam einen leeren
-            # Freitext zurueck: kind fiel auf die Vorgabe "text", data blieb
-            # null. Beim Bearbeiten einer bestehenden Tabelle war es dasselbe
-            # in still - die Aenderung verschwand, die alte Tabelle kam
-            # wieder.
-            #
-            # Die Pruefung auf validated_data statt auf einen Vorgabewert ist
-            # der Unterschied zwischen "nicht geschickt" und "auf leer
-            # gesetzt". Ein aelterer Client, der beide Felder gar nicht kennt,
-            # darf eine vorhandene Tabelle nicht loeschen; ein neuer, der
-            # ausdruecklich data=null schickt, soll es koennen.
-            geschickt = serializer.validated_data
-            if "kind" in geschickt:
-                felder["kind"] = serializer.data.get("kind")
-            if "data" in geschickt:
-                felder["data"] = serializer.data.get("data")
-
-            if item_id:
-                ProtocolItem.objects.filter(id=item_id).update(**felder)
-                message = "Item updated"
-            else:
-                ProtocolItem.objects.create(**felder)
-                message = "Item created"
-
-            return Response(
-                {"message": message},
-                status=status.HTTP_200_OK,
-            )
-        return Response(
-            data="message: serializer.errors", status=status.HTTP_400_BAD_REQUEST
+        protocol = schreibbares_protokoll(
+            request.user, serializer.validated_data.get("protocol")
         )
 
+        felder = {
+            "protocol_id": protocol.id,
+            "name": serializer.validated_data.get("name"),
+            "value": serializer.validated_data.get("value"),
+            "position": serializer.validated_data.get("position"),
+        }
+
+        # kind und data nur uebernehmen, wenn sie mitgeschickt wurden.
+        #
+        # Sie fehlten hier ganz - und damit ging jede Tabelle verloren. Wer
+        # aus dem Menue "Eintrag hinzufuegen" eine Aufgabenliste oder einen
+        # Massnahmenplan waehlte und speicherte, bekam einen leeren Freitext
+        # zurueck: kind fiel auf die Vorgabe "text", data blieb null.
+        #
+        # Die Pruefung auf validated_data statt auf einen Vorgabewert ist der
+        # Unterschied zwischen "nicht geschickt" und "auf leer gesetzt". Ein
+        # aelterer Client, der beide Felder gar nicht kennt, darf eine
+        # vorhandene Tabelle nicht loeschen; ein neuer, der ausdruecklich
+        # data=null schickt, soll es koennen.
+        geschickt = serializer.validated_data
+        if "kind" in geschickt:
+            felder["kind"] = geschickt.get("kind")
+        if "data" in geschickt:
+            felder["data"] = geschickt.get("data")
+
+        if item_id:
+            # Das Paar aus Eintrag UND Protokoll - hier lag die Luecke.
+            geaendert = ProtocolItem.objects.filter(
+                id=item_id, protocol_id=protocol.id
+            ).update(**felder)
+            if not geaendert:
+                raise NotFound("Eintrag gehört nicht zu diesem Protokoll.")
+            message = "Item updated"
+        else:
+            ProtocolItem.objects.create(**felder)
+            message = "Item created"
+
+        return Response({"message": message}, status=status.HTTP_200_OK)
+
     def delete(self, request):
-        try:
-            item = ProtocolItem.objects.get(id=request.data.get("item_id"))
+        item = (
+            ProtocolItem.objects.select_related("protocol__group")
+            .filter(id=request.data.get("item_id"))
+            .first()
+        )
+        if item is None:
+            raise NotFound("Eintrag nicht gefunden.")
 
-            # Check if protocol is exported
-            if item.protocol.status == "exported":
-                return Response(
-                    {"error": "Exportierte Protokolle können nicht bearbeitet werden."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+        # Ueber das Protokoll des Eintrags - nicht ueber eine Nummer aus dem
+        # Rumpf. Damit kann auch das Loeschen keine Protokollgrenze ueberspringen.
+        schreibbares_protokoll(request.user, item.protocol_id)
 
-            # Check access: user must be staff or member of protocol's group
-            is_member = item.protocol.group.group_members.filter(
-                id=request.user.id
-            ).exists()
-            if not is_member and not is_admin(request.user):
-                return Response(
-                    {"error": "You do not have permission to access this protocol"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            item.delete()
-            return Response(
-                {"message": "Item deleted"},
-                status=status.HTTP_200_OK,
-            )
-        except ProtocolItem.DoesNotExist:
-            return Response(
-                data={"message": "Item not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        item.delete()
+        return Response({"message": "Item deleted"}, status=status.HTTP_200_OK)
 
 
 class MentionAutocompleteView(APIView):
-    """Get list of residents for @mention autocomplete."""
+    """Bewohner der Protokollgruppe fuer die @-Erwaehnung."""
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
 
@@ -555,86 +621,106 @@ class MentionAutocompleteView(APIView):
                 {"error": "protocol_id is required"}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        try:
-            protocol = Protocol.objects.get(id=protocol_id)
+        protocol = protokoll_fuer(request.user, protocol_id)
 
-            # Check access: user must be staff or member of protocol's group
-            is_member = protocol.group.group_members.filter(id=request.user.id).exists()
-            if not is_member and not is_admin(request.user):
-                return Response(
-                    {"error": "You do not have permission to access this protocol"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+        residents = Resident.objects.filter(
+            group=protocol.group, moved_out_since__isnull=True
+        )
 
-            residents = Resident.objects.filter(
-                group=protocol.group, moved_out_since__isnull=True
-            )
+        data = [
+            {
+                "id": resident.id,
+                "name": resident.get_full_name(),
+                "mention": resident.get_full_name().replace(" ", "_"),
+            }
+            for resident in residents
+        ]
 
-            data = [
-                {
-                    "id": resident.id,
-                    "name": resident.get_full_name(),
-                    "mention": resident.get_full_name().replace(" ", "_"),
-                }
-                for resident in residents
-            ]
-
-            return Response(data, status=status.HTTP_200_OK)
-        except Protocol.DoesNotExist:
-            return Response(
-                {"error": "Protocol not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        return Response(data, status=status.HTTP_200_OK)
 
 
 class RotateImageView(APIView):
-    """Rotate resident images (left/right)."""
+    """
+    Bewohnerfoto drehen.
+
+    Frueher nahm dieser Endpunkt eine `image_url` aus dem Rumpf, setzte sie
+    per os.path.join an MEDIA_ROOT und schrieb die Datei zurueck - ohne zu
+    fragen, wessen Foto das ist und ob der Pfad ueberhaupt in MEDIA_ROOT
+    liegt (S5). Ein "../" an der richtigen Stelle reichte.
+
+    Jetzt kommt nur noch eine Bewohnernummer herein. Welche Datei dazu
+    gehoert, weiss die Datenbank - und ob das Konto sie sehen darf, weiss
+    Resident.objects.for_user.
+    """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
 
-    def post(self, request):
+    def post(self, request, resident_id: int | None = None):
+        richtung = request.data.get("direction")
+        if richtung not in ("left", "right"):
+            return Response(
+                {"success": False, "error": "direction muss 'left' oder 'right' sein."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if resident_id is None:
+            resident_id = request.data.get("resident_id") or request.data.get("resident")
+        if not resident_id:
+            return Response(
+                {"success": False, "error": "resident_id ist erforderlich."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        resident = (
+            Resident.objects.for_user(request.user).filter(id=resident_id).first()
+        )
+        if resident is None:
+            return Response(
+                {"success": False, "error": "Bewohner nicht gefunden."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if not resident.picture:
+            return Response(
+                {"success": False, "error": "Zu dieser Person ist kein Foto hinterlegt."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        pfad = os.path.realpath(resident.picture.path)
+        wurzel = os.path.realpath(settings.MEDIA_ROOT)
+        # Guertel und Hosentraeger: der Pfad stammt zwar aus der Datenbank,
+        # aber ein Datensatz mit "../" im Dateinamen bleibt denkbar.
         try:
-            data = request.data
-            direction = data.get("direction")
-            image_url = data.get("image_url")
+            innerhalb = os.path.commonpath([pfad, wurzel]) == wurzel
+        except ValueError:
+            # Verschiedene Laufwerke - commonpath wirft dann, statt False zu
+            # sagen. Der Fall gehoert in denselben Zweig.
+            innerhalb = False
 
-            if not direction or not image_url:
-                return Response(
-                    {"success": False, "error": "direction and image_url are required"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            image_path = os.path.join(
-                settings.MEDIA_ROOT, os.path.relpath(image_url, settings.MEDIA_URL)
-            )
-            if not os.path.exists(image_path):
-                return Response(
-                    {"success": False, "error": "Image not found"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-
-            with Image.open(image_path) as img:
-                if direction == "left":
-                    img = img.rotate(90, expand=True)
-                elif direction == "right":
-                    img = img.rotate(-90, expand=True)
-                else:
-                    return Response(
-                        {"success": False, "error": "Invalid direction"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                img.save(image_path)
-
-            new_image_url = f"{settings.MEDIA_URL}{os.path.relpath(image_path, settings.MEDIA_ROOT)}"
+        if not innerhalb or not os.path.exists(pfad):
+            logger.warning("Bilddatei ausserhalb von MEDIA_ROOT: %s", pfad)
             return Response(
-                {"success": True, "new_image_url": new_image_url},
-                status=status.HTTP_200_OK,
+                {"success": False, "error": "Bilddatei nicht gefunden."},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
-        except Exception as e:
-            return Response(
-                {"success": False, "error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        try:
+            with Image.open(pfad) as img:
+                gedreht = img.rotate(90 if richtung == "left" else -90, expand=True)
+                gedreht.save(pfad)
+        except OSError as fehler:
+            return serverfehler("Foto drehen", fehler)
+
+        return Response(
+            {
+                "success": True,
+                "new_image_url": (
+                    request.build_absolute_uri(resident.picture.url)
+                    if request
+                    else resident.picture.url
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class UserProfileView(APIView):
@@ -861,10 +947,8 @@ class ResidentPictureUploadView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        except Exception as fehler:  # noqa: BLE001
+            return serverfehler(self.__class__.__name__, fehler)
 
 
 class GroupPDFTemplateView(APIView):
@@ -950,10 +1034,8 @@ class GroupPDFTemplateView(APIView):
                 status=status.HTTP_200_OK,
             )
 
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        except Exception as fehler:  # noqa: BLE001
+            return serverfehler(self.__class__.__name__, fehler)
 
     def delete(self, request, group_id: int):
         """
@@ -987,45 +1069,25 @@ class GroupPDFTemplateView(APIView):
 
 class ProtocolExportedFileView(APIView):
     """
-    Get or upload exported protocol file.
+    Die exportierte Datei eines Protokolls.
 
-    GET /api/v1/protocol/{id}/exported_file/
-    - Download the exported file (if available)
+    GET  /api/v1/protocol/{id}/exported_file/   Datei abrufen
+    POST /api/v1/protocol/{id}/exported_file/   Datei ablegen und abschliessen
 
-    POST /api/v1/protocol/{id}/exported_file/
-    - Upload exported file (automatically sets exported=true and status='exported')
-
-    Request (multipart/form-data):
-    - exported_file: File
-
-    Access Control:
-    - User must be staff OR member of protocol's group.group_members
+    Der POST ist der Vorgang, der ein Protokoll sperrt. Er verlangt deshalb
+    zweierlei mehr als frueher: eine PDF-Datei (kein beliebiger Anhang) und
+    die ausdrueckliche Bestaetigung `confirm=true`. Vorher genuegte ein
+    versehentlicher Aufruf, um die Dokumentation eines Abends festzuschreiben.
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request, protocol_id: int):
-        """Get exported file for a protocol."""
-        try:
-            protocol = Protocol.objects.get(id=protocol_id)
-        except Protocol.DoesNotExist:
-            return Response(
-                {"error": "Protocol not found"}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        # Check access: user must be staff or member of protocol's group
-        is_member = protocol.group.group_members.filter(id=request.user.id).exists()
-        if not is_member and not is_admin(request.user):
-            return Response(
-                {
-                    "error": "You do not have permission to view this protocol's exported file"
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        protocol = protokoll_fuer(request.user, protocol_id)
 
         if not protocol.exported_file:
             return Response(
-                {"error": "No exported file available for this protocol"},
+                {"error": "Zu diesem Protokoll liegt keine Exportdatei vor."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -1041,110 +1103,80 @@ class ProtocolExportedFileView(APIView):
         )
 
     def post(self, request, protocol_id: int):
-        """Upload exported file. Automatically sets exported=true and status='exported'."""
-        try:
-            protocol = Protocol.objects.get(id=protocol_id)
-        except Protocol.DoesNotExist:
-            return Response(
-                {"error": "Protocol not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        protocol = protokoll_fuer(request.user, protocol_id)
 
-        # Check access: user must be staff or member of protocol's group
-        is_member = protocol.group.group_members.filter(id=request.user.id).exists()
-        if not is_member and not is_admin(request.user):
-            return Response(
-                {
-                    "error": "You do not have permission to upload files for this protocol"
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        if protocol.status == "exported":
+            raise ProtokollGesperrt()
 
-        # Check if file is provided
         if "exported_file" not in request.FILES:
             return Response(
-                {"error": "exported_file is required"},
+                {"error": "exported_file ist erforderlich."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        try:
-            exported_file = request.FILES["exported_file"]
-            protocol.exported_file = exported_file
-            # Automatically set exported=true and status='exported' when file is uploaded
-            protocol.exported = True
-            protocol.status = "exported"
-            protocol.save()
-
+        # Die Bestaetigung kommt als Formularfeld, also als Text.
+        bestaetigt = str(request.data.get("confirm", "")).lower() in (
+            "1",
+            "true",
+            "ja",
+            "on",
+        )
+        if not bestaetigt:
             return Response(
                 {
-                    "success": True,
-                    "message": "Exported file uploaded successfully",
-                    "protocol_id": protocol.id,
-                    "exported": protocol.exported,
-                    "status": protocol.status,
-                    "file_url": request.build_absolute_uri(protocol.exported_file.url),
-                    "file_name": protocol.exported_file.name.split("/")[-1],
+                    "error": (
+                        "Der Export schließt das Protokoll ab. "
+                        "Bitte mit confirm=true bestätigen."
+                    )
                 },
-                status=status.HTTP_200_OK,
+                status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as e:
+
+        datei = request.FILES["exported_file"]
+        if not datei.name.lower().endswith(".pdf"):
             return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": "Es lassen sich nur PDF-Dateien ablegen."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
+        zu_gross = upload_too_large(datei)
+        if zu_gross:
+            return Response({"error": zu_gross}, status=status.HTTP_400_BAD_REQUEST)
+
+        protocol.exported_file = datei
+        protocol.exported = True
+        protocol.status = "exported"
+        protocol.save()
+
+        return Response(
+            {
+                "success": True,
+                "message": "Exported file uploaded successfully",
+                "protocol_id": protocol.id,
+                "exported": protocol.exported,
+                "status": protocol.status,
+                "file_url": request.build_absolute_uri(protocol.exported_file.url),
+                "file_name": protocol.exported_file.name.split("/")[-1],
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ProtocolPresenceListView(APIView):
     """
-    List all presence entries for a protocol.
+    Anwesenheitszeilen eines Protokolls.
 
     GET /api/v1/protocol/{id}/presence/
-
-    Returns:
-    [
-        {
-            "id": int,
-            "protocol": int,
-            "user": int,
-            "user_name": "string",
-            "was_present": boolean
-        }
-    ]
-
-    Access Control:
-    - User must be staff OR member of protocol's group.group_members
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
 
     def get(self, request, protocol_id: int):
-        try:
-            # Get protocol for authenticated users
-            try:
-                protocol = Protocol.objects.get(id=protocol_id)
-            except Protocol.DoesNotExist:
-                return Response(
-                    {"error": "Protocol not found"}, status=status.HTTP_404_NOT_FOUND
-                )
-
-            # Check access: user must be staff or member of protocol's group
-            is_member = protocol.group.group_members.filter(id=request.user.id).exists()
-            if not is_member and not is_admin(request.user):
-                return Response(
-                    {
-                        "error": "You do not have permission to view this protocol's presence entries"
-                    },
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            # Get all presence entries for this protocol
-            presence_entries = ProtocolPresence.objects.filter(protocol=protocol)
-            serializer = ProtocolPresenceSerializer(presence_entries, many=True)
-
-            return Response(serializer.data, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        protocol = protokoll_fuer(request.user, protocol_id)
+        eintraege = ProtocolPresence.objects.filter(protocol=protocol).select_related(
+            "user"
+        )
+        serializer = ProtocolPresenceSerializer(eintraege, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class AdminUserListView(APIView):
@@ -1190,10 +1222,8 @@ class AdminUserListView(APIView):
                 users, many=True, context={"request": request}
             )
             return Response(serializer.data, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        except Exception as fehler:  # noqa: BLE001
+            return serverfehler(self.__class__.__name__, fehler)
 
     def post(self, request):
         """Create a new user (staff only)."""
@@ -1239,10 +1269,8 @@ class AdminUserListView(APIView):
             serializer = UserDetailSerializer(user, context={"request": request})
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        except Exception as fehler:  # noqa: BLE001
+            return serverfehler(self.__class__.__name__, fehler)
 
 
 class AdminUserDetailView(APIView):
@@ -1281,6 +1309,32 @@ class AdminUserDetailView(APIView):
         serializer = UserDetailSerializer(user, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @staticmethod
+    def _letzter_zugang(user, *, deaktivieren: bool) -> str | None:
+        """
+        Sperrt dieser Vorgang die Verwaltung aus?
+
+        Zwei Faelle, die frueher beide durchgingen und in derselben Sackgasse
+        endeten - kein Konto mehr, das die Anwendung verwalten kann, und kein
+        Weg zurueck ausser ueber die Kommandozeile (S10):
+
+          - das eigene Konto loeschen oder stilllegen
+          - den letzten aktiven Superuser loeschen oder stilllegen
+        """
+        if not user.is_superuser:
+            return None
+        verbleibend = (
+            User.objects.filter(is_superuser=True, is_active=True)
+            .exclude(pk=user.pk)
+            .exists()
+        )
+        if verbleibend:
+            return None
+        return (
+            "Das ist das letzte aktive Verwaltungskonto. Ohne es lässt sich "
+            "die Anwendung nicht mehr verwalten - zuerst ein zweites anlegen."
+        )
+
     def put(self, request, user_id: int):
         """Update user details (staff only)."""
         if not is_admin(request.user):
@@ -1294,6 +1348,37 @@ class AdminUserDetailView(APIView):
             return Response(
                 {"error": "Benutzer nicht gefunden."}, status=status.HTTP_404_NOT_FOUND
             )
+
+        stilllegen = "is_active" in request.data and not request.data["is_active"]
+        if stilllegen:
+            if user.pk == request.user.pk:
+                return Response(
+                    {"error": "Das eigene Konto lässt sich nicht stilllegen."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            hindernis = self._letzter_zugang(user, deaktivieren=True)
+            if hindernis:
+                return Response(
+                    {"error": hindernis}, status=status.HTTP_400_BAD_REQUEST
+                )
+
+        if "email" in request.data:
+            adresse = (request.data["email"] or "").strip()
+            if (
+                adresse
+                and User.objects.filter(email__iexact=adresse)
+                .exclude(pk=user.pk)
+                .exists()
+            ):
+                return Response(
+                    {
+                        "error": (
+                            "Diese E-Mail-Adresse gehört bereits zu einem "
+                            "anderen Konto."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         try:
             # Update allowed fields
@@ -1312,10 +1397,8 @@ class AdminUserDetailView(APIView):
             serializer = UserDetailSerializer(user, context={"request": request})
             return Response(serializer.data, status=status.HTTP_200_OK)
 
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        except Exception as fehler:  # noqa: BLE001
+            return serverfehler(self.__class__.__name__, fehler)
 
     def delete(self, request, user_id: int):
         """Delete user (staff only)."""
@@ -1331,16 +1414,23 @@ class AdminUserDetailView(APIView):
                 {"error": "Benutzer nicht gefunden."}, status=status.HTTP_404_NOT_FOUND
             )
 
+        if user.pk == request.user.pk:
+            return Response(
+                {"error": "Das eigene Konto lässt sich nicht löschen."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        hindernis = self._letzter_zugang(user, deaktivieren=False)
+        if hindernis:
+            return Response({"error": hindernis}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             user.delete()
             return Response(
                 {"message": "Benutzer erfolgreich gelöscht."},
                 status=status.HTTP_204_NO_CONTENT,
             )
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        except Exception as fehler:  # noqa: BLE001
+            return serverfehler("Konto löschen", fehler)
 
 
 class AdminUserGroupView(APIView):
@@ -1392,10 +1482,8 @@ class AdminUserGroupView(APIView):
             group.group_members.add(user)
             serializer = UserDetailSerializer(user, context={"request": request})
             return Response(serializer.data, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        except Exception as fehler:  # noqa: BLE001
+            return serverfehler(self.__class__.__name__, fehler)
 
     def delete(self, request, user_id: int, group_id: int):
         """Remove user from group (staff only)."""
@@ -1423,155 +1511,5 @@ class AdminUserGroupView(APIView):
             group.group_members.remove(user)
             serializer = UserDetailSerializer(user, context={"request": request})
             return Response(serializer.data, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-
-class AdminUserPermissionView(APIView):
-    """
-    Admin: Manage user resource permissions (read, write, delete).
-
-    GET /api/v1/admin/users/{user_id}/permissions/
-    - List all permissions for user
-
-    POST /api/v1/admin/users/{user_id}/permissions/
-    - Add permission to user
-
-    DELETE /api/v1/admin/users/{user_id}/permissions/{permission_id}/
-    - Remove permission from user
-
-    Permission Request Format:
-    {
-        "group_id": int,
-        "resource": "resident|protocol|group",
-        "permission": "read|write|delete"
-    }
-
-    Access Control:
-    - Staff only (is_staff == true)
-    """
-
-    permission_classes = [IsAuthenticated, WriteNeedsRole]
-
-    def get(self, request, user_id: int):
-        """List user permissions (staff only)."""
-        if not is_admin(request.user):
-            return Response(
-                {"error": "Sie haben keine Berechtigung."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response(
-                {"error": "Benutzer nicht gefunden."}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        try:
-            permissions = UserPermission.objects.filter(user=user)
-            serializer = UserPermissionSerializer(permissions, many=True)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def post(self, request, user_id: int):
-        """Add permission to user (staff only)."""
-        if not is_admin(request.user):
-            return Response(
-                {"error": "Sie haben keine Berechtigung."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response(
-                {"error": "Benutzer nicht gefunden."}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        group_id = request.data.get("group_id")
-        resource = request.data.get("resource")
-        permission = request.data.get("permission")
-
-        if not group_id or not resource or not permission:
-            return Response(
-                {"error": "group_id, resource und permission sind erforderlich."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Validate resource and permission
-        valid_resources = ["resident", "protocol", "group"]
-        valid_permissions = ["read", "write", "delete"]
-
-        if resource not in valid_resources:
-            return Response(
-                {"error": f"Ungültige Ressource. Gültig: {', '.join(valid_resources)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if permission not in valid_permissions:
-            return Response(
-                {
-                    "error": f"Ungültige Berechtigung. Gültig: {', '.join(valid_permissions)}"
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            group = Group.objects.get(id=group_id)
-        except Group.DoesNotExist:
-            return Response(
-                {"error": "Gruppe nicht gefunden."}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        try:
-            perm, created = UserPermission.objects.get_or_create(
-                user=user, group=group, resource=resource, permission=permission
-            )
-
-            serializer = UserPermissionSerializer(perm)
-            status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
-            return Response(serializer.data, status=status_code)
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def delete(self, request, user_id: int, permission_id: int):
-        """Remove permission from user (staff only)."""
-        if not is_admin(request.user):
-            return Response(
-                {"error": "Sie haben keine Berechtigung."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response(
-                {"error": "Benutzer nicht gefunden."}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        try:
-            permission_obj = UserPermission.objects.get(id=permission_id, user=user)
-        except UserPermission.DoesNotExist:
-            return Response(
-                {"error": "Berechtigung nicht gefunden."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        try:
-            permission_obj.delete()
-            return Response(
-                {"message": "Berechtigung erfolgreich gelöscht."},
-                status=status.HTTP_204_NO_CONTENT,
-            )
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        except Exception as fehler:  # noqa: BLE001
+            return serverfehler(self.__class__.__name__, fehler)

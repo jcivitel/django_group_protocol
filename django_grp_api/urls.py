@@ -1,4 +1,4 @@
-from django.urls import path, include
+from django.urls import path, include, re_path
 from rest_framework import routers
 from rest_framework_nested import routers as nested_routers
 
@@ -8,6 +8,8 @@ from django_grp_mail import api as mail_api
 from django_grp_org import api as org_api
 
 from . import views
+from .media import MediaView
+from .passwort import PasswortNeuView, PasswortVergessenView
 from .views import (
     ProtocolPresenceUpdateView,
     ItemValuesUpdateView,
@@ -21,11 +23,11 @@ from .views import (
     ResidentPictureUploadView,
     GroupPDFTemplateView,
     ProtocolPresenceListView,
+    TodoCollectionView,
     ProtocolExportedFileView,
     AdminUserListView,
     AdminUserDetailView,
     AdminUserGroupView,
-    AdminUserPermissionView,
 )
 
 router = routers.DefaultRouter()
@@ -109,6 +111,16 @@ duty_router.register(r"shift", duty_api.ShiftViewSet, basename="duty-shift")
 
 urlpatterns = [
     path("v1/auth/login/", LoginView.as_view(), name="auth-login"),
+    path(
+        "v1/auth/passwort-vergessen/",
+        PasswortVergessenView.as_view(),
+        name="auth-passwort-vergessen",
+    ),
+    path(
+        "v1/auth/passwort-neu/",
+        PasswortNeuView.as_view(),
+        name="auth-passwort-neu",
+    ),
     path("v1/mail/settings/", mail_api.MailSettingsView.as_view(), name="mail-settings"),
     path("v1/mail/test/", mail_api.MailTestView.as_view(), name="mail-test"),
     path("v1/mail/outbox/", mail_api.MailOutboxView.as_view(), name="mail-outbox"),
@@ -176,6 +188,10 @@ urlpatterns = [
     path("v1/payroll/", duty_api.PayrollExportView.as_view(), name="payroll"),
     # Ohne Anmeldung, damit Monitoring-Systeme sie abfragen koennen.
     path("health/", org_api.HealthView.as_view(), name="health"),
+    # Getrennt, weil die Antworten verschiedene Folgen haben: livez
+    # entscheidet ueber einen Neustart, readyz ueber den Lastverteiler.
+    path("livez/", org_api.LivenessView.as_view(), name="livez"),
+    path("readyz/", org_api.ReadinessView.as_view(), name="readyz"),
     path(
         "v1/help-plan/<int:plan_id>/continue/",
         care_api.HelpPlanContinueView.as_view(),
@@ -222,8 +238,20 @@ urlpatterns = [
         name="protocol-exported-file",
     ),
     path("v1/presence/", ProtocolPresenceUpdateView.as_view(), name="update-presence"),
+    # Sammelabfrage statt Faecher: siehe TodoCollectionView.
+    path("v1/todo/", TodoCollectionView.as_view(), name="todo-collection"),
     path("v1/item/", ItemValuesUpdateView.as_view(), name="update-item"),
+    # Bilddrehen laeuft ueber die Bewohnernummer, nicht mehr ueber einen
+    # Dateipfad aus dem Rumpf (S5). Die alte Adresse bleibt bestehen, verlangt
+    # aber ebenfalls resident_id.
+    path(
+        "v1/resident/<int:resident_id>/rotate/",
+        RotateImageView.as_view(),
+        name="resident-rotate-picture",
+    ),
     path("v1/rotate_image/", RotateImageView.as_view(), name="rotate_image"),
+    # Medien: authentifiziert und objektbezogen statt offen (S4).
+    re_path(r"^v1/media/(?P<path>.+)$", MediaView.as_view(), name="media"),
     path(
         "v1/mentions/", MentionAutocompleteView.as_view(), name="mention-autocomplete"
     ),
@@ -243,15 +271,5 @@ urlpatterns = [
         "v1/admin/users/<int:user_id>/groups/<int:group_id>/",
         AdminUserGroupView.as_view(),
         name="admin-user-group-detail",
-    ),
-    path(
-        "v1/admin/users/<int:user_id>/permissions/",
-        AdminUserPermissionView.as_view(),
-        name="admin-user-permissions",
-    ),
-    path(
-        "v1/admin/users/<int:user_id>/permissions/<int:permission_id>/",
-        AdminUserPermissionView.as_view(),
-        name="admin-user-permission-detail",
     ),
 ]

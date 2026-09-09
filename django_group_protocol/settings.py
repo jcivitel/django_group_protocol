@@ -14,14 +14,63 @@ PROJECT_NAME = os.path.basename(PROJECT_ROOT)
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
-SECRET_KEY = config(
-    "SECRET_KEY",
-    default="django-insecure-(x$!=h4%mq4n4#&qjwpw(1@jwqfwh$@v4)!ax*-pi#fdozx6zm",
-    cast=str,
-)
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", default=False, cast=bool)
+
+# ============================================================================
+# Schluessel
+# ============================================================================
+#
+# SECRET_KEY hat frueher eine eingebaute Vorgabe gehabt, und die stand als
+# "django-insecure-..." in jedem Aufbau, den niemand angefasst hat. Weil aus
+# demselben Schluessel auch die Verschluesselung der SMTP-Zugangsdaten und des
+# VAPID-Privatkeys abgeleitet wird, war das kein Schoenheitsfehler: wer die
+# Vorgabe kannte, konnte beides entschluesseln.
+#
+# Deshalb gibt es die Vorgabe nur noch im Entwicklungsbetrieb. Steht DEBUG auf
+# False und fehlt ein eigener Schluessel, startet die Anwendung nicht - lauter
+# Abbruch statt stiller Unsicherheit.
+
+INSECURE_KEY_PREFIX = "django-insecure"
+
+SECRET_KEY = config("SECRET_KEY", default="", cast=str).strip()
+
+# Alte Schluessel, damit ein Wechsel bestehende Sitzungen und verschluesselte
+# Felder nicht auf einen Schlag entwertet. Reihenfolge: neuester zuerst.
+SECRET_KEY_FALLBACKS = config("SECRET_KEY_FALLBACKS", default="", cast=Csv())
+
+
+def _schluessel_unsicher(schluessel: str) -> bool:
+    return (
+        not schluessel
+        or schluessel.startswith(INSECURE_KEY_PREFIX)
+        or len(schluessel) < 50
+    )
+
+
+if _schluessel_unsicher(SECRET_KEY):
+    if DEBUG:
+        SECRET_KEY = (
+            "django-insecure-nur-fuer-die-entwicklung-"
+            "niemals-mit-DEBUG=False-verwenden"
+        )
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+
+        raise ImproperlyConfigured(
+            "SECRET_KEY fehlt oder ist unsicher. Einen neuen erzeugen "
+            "mit: python manage.py schluessel_erzeugen - und als "
+            "SECRET_KEY in die .env eintragen. Der bisherige Wert "
+            "gehoert dann in SECRET_KEY_FALLBACKS, damit gespeicherte "
+            "Zugangsdaten weiter lesbar bleiben."
+        )
+
+# Schluessel fuer verschluesselte Datenbankfelder (SMTP-Passwort, VAPID-Key).
+#
+# Eigener Wert, damit sich SECRET_KEY drehen laesst, ohne dass die
+# Mailkonfiguration neu eingegeben werden muss. Fehlt er, wird wie bisher aus
+# SECRET_KEY abgeleitet - bestehende Aufbauten bleiben lesbar.
+FIELD_ENCRYPTION_KEY = config("FIELD_ENCRYPTION_KEY", default="", cast=str).strip()
 
 # Liefert Django die Dateien aus MEDIA_ROOT selbst aus?
 #
@@ -35,8 +84,16 @@ SERVE_MEDIA = config("SERVE_MEDIA", default=DEBUG, cast=bool)
 CORS_ALLOWED_ORIGINS = config("CORS_ALLOWED_ORIGINS", default="", cast=Csv())
 CSRF_TRUSTED_ORIGINS = config("CSRF_TRUSTED_ORIGINS", default="", cast=Csv())
 
-ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="[*]", cast=Csv())
-CORS_ORIGIN_ALLOW_ALL = True
+# Vorgabe ist der oertliche Betrieb. "[*]" stand hier frueher und war schon
+# als Platzhalter falsch: Csv() macht daraus ['[*]'], also einen Hostnamen,
+# den es nicht gibt - im Betrieb faellt das erst beim ersten Zugriff auf.
+ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv())
+
+# CORS_ORIGIN_ALLOW_ALL = True stand hier fest verdrahtet und hat die
+# sorgfaeltig aus der .env gefuellte Liste darunter komplett ausgehebelt -
+# jede fremde Seite durfte die API im Browser ansprechen. Es gilt jetzt nur
+# noch CORS_ALLOWED_ORIGINS.
+CORS_ALLOW_CREDENTIALS = False
 
 # Application definition
 
@@ -53,9 +110,14 @@ INSTALLED_APPS = [
     "corsheaders",
 ]
 
-# Dynamic loading of modules
-for name in os.listdir(PROJECT_ROOT + "/.."):
-    if os.path.isdir(name) and name.startswith("django_grp_"):
+# Apps dieses Projekts einsammeln.
+#
+# Die Pruefung lief frueher ueber os.path.isdir(name) - also relativ zum
+# Arbeitsverzeichnis des Prozesses. Wurde manage.py von woanders aufgerufen,
+# war INSTALLED_APPS still leer und die Anwendung ohne erkennbaren Grund
+# funktionslos. Jetzt zaehlt der Ort der Datei, nicht der des Aufrufers.
+for name in sorted(os.listdir(BASE_DIR)):
+    if name.startswith("django_grp_") and (BASE_DIR / name).is_dir():
         INSTALLED_APPS.append(name)
 
 MIDDLEWARE = [
@@ -90,7 +152,7 @@ WHITENOISE_MANIFEST_STRICT = False
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [os.path.join(BASE_DIR, "templates")],
+        "DIRS": [],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -124,9 +186,26 @@ DATABASES = {
         "PASSWORD": MAIN_DATABASE_PASSWD,
         "HOST": MAIN_DATABASE_HOST,
         "PORT": MAIN_DATABASE_PORT,
-        "OPTIONS": {"init_command": "SET sql_mode='STRICT_TRANS_TABLES'"},
+        # Verbindungen eine Minute offen halten. Ohne das baut jede Anfrage
+        # eine neue TCP- und Anmelde-Runde zur Datenbank auf; bei einer
+        # Uebersichtsseite mit einem Dutzend Abfragen ist das messbar.
+        "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=60, cast=int),
+        "CONN_HEALTH_CHECKS": True,
     },
 }
+
+# Das init_command ist MySQL-Sprache. Stand es unbesehen da, liess sich das
+# Projekt mit SQLite nicht einmal starten ("near SET: syntax error") - und
+# genau darauf faellt MAIN_DATABASE_ENGINE ohne .env zurueck.
+if "mysql" in MAIN_DATABASE_ENGINE:
+    DATABASES["default"]["OPTIONS"] = {
+        "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
+        "charset": "utf8mb4",
+    }
+    DATABASES["default"]["TEST"] = {
+        "CHARSET": "utf8mb4",
+        "COLLATION": "utf8mb4_unicode_ci",
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
@@ -192,14 +271,59 @@ LOGGING = {
     },
 }
 
+# ============================================================================
+# REST-Schnittstelle
+# ============================================================================
+#
+# BasicAuthentication war bis hierher aktiv, und damit nahm JEDER Endpunkt
+# "Authorization: Basic benutzer:passwort" an. Zusammen mit dem fehlenden
+# Bremsklotz am Login war das eine offene Einladung zum Durchprobieren von
+# Passwoertern. Der Web-Client meldet sich per Token an und braucht es nicht;
+# fuer die Fehlersuche laesst es sich ueber die .env wieder einschalten.
+API_ALLOW_BASIC_AUTH = config("API_ALLOW_BASIC_AUTH", default=False, cast=bool)
+
+# Nicht DRFs TokenAuthentication, sondern die Variante mit Ablaufdatum -
+# siehe django_grp_api/auth.py und TOKEN_MAX_AGE_HOURS.
+_AUTHENTICATION_CLASSES = ["django_grp_api.auth.AblaufendeTokenAuthentication"]
+if API_ALLOW_BASIC_AUTH:
+    _AUTHENTICATION_CLASSES.append("rest_framework.authentication.BasicAuthentication")
+
+# Seitenweise ausliefern.
+#
+# Bis hierhin gab es keine Pagination: `GET /api/v1/resident/` lieferte jeden
+# Bewohner, `GET /api/v1/protocol/` jedes Protokoll seit Inbetriebnahme -
+# in einer Antwort, komplett im Speicher. Bei einem Traeger mit ein paar
+# hundert Bewohnern und einigen tausend Protokollen wird daraus eine
+# Uebersichtsseite, die Sekunden braucht.
+#
+# Die Seite ist bewusst gross: der Web-Client holt Listen ueber apiList()
+# und folgt dabei "next", der Rundlauf faellt also kaum ins Gewicht. Die
+# Grenze schuetzt vor der einen Anfrage, die alles auf einmal will.
+API_PAGE_SIZE = config("API_PAGE_SIZE", default=200, cast=int)
+API_PAGE_SIZE_MAX = config("API_PAGE_SIZE_MAX", default=1000, cast=int)
+
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.TokenAuthentication",
-        "rest_framework.authentication.BasicAuthentication",
-    ],
+    "DEFAULT_PAGINATION_CLASS": "django_grp_api.pagination.Seitenweise",
+    "PAGE_SIZE": API_PAGE_SIZE,
+    "DEFAULT_AUTHENTICATION_CLASSES": _AUTHENTICATION_CLASSES,
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    # Drosselung. Der Login hat einen eigenen, engen Takt (ScopedRateThrottle
+    # am View), alles Uebrige einen weiten - er soll nicht die Fachkraft
+    # bremsen, die zuegig arbeitet, sondern das Skript, das die Liste
+    # durchprobiert.
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": config("THROTTLE_ANON", default="60/min", cast=str),
+        "user": config("THROTTLE_USER", default="1200/min", cast=str),
+        "login": config("THROTTLE_LOGIN", default="10/min", cast=str),
+        "passwort": config("THROTTLE_PASSWORT", default="5/min", cast=str),
+    },
 }
 
 # Internationalization
@@ -221,6 +345,53 @@ STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ============================================================================
+# Sicherheitskoepfe und Cookies
+# ============================================================================
+#
+# Ein Schalter statt fuenf: wer die Anwendung hinter HTTPS stellt, setzt
+# HTTPS=True in der .env und bekommt alles, was `manage.py check --deploy`
+# verlangt. Einzeln bleibt jeder Wert ueberschreibbar - hinter einem
+# Reverse Proxy, der TLS selbst abloest, will man SECURE_SSL_REDIRECT
+# manchmal aus.
+HTTPS = config("HTTPS", default=not DEBUG, cast=bool)
+
+SECURE_SSL_REDIRECT = config("SECURE_SSL_REDIRECT", default=HTTPS, cast=bool)
+SESSION_COOKIE_SECURE = config("SESSION_COOKIE_SECURE", default=HTTPS, cast=bool)
+CSRF_COOKIE_SECURE = config("CSRF_COOKIE_SECURE", default=HTTPS, cast=bool)
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+
+# Ein Jahr, sobald HTTPS steht. Vorher 0 - ein HSTS-Kopf auf einer Adresse,
+# die noch kein Zertifikat hat, sperrt Browser dauerhaft aus.
+SECURE_HSTS_SECONDS = config(
+    "SECURE_HSTS_SECONDS", default=31536000 if HTTPS else 0, cast=int
+)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = config(
+    "SECURE_HSTS_INCLUDE_SUBDOMAINS", default=HTTPS, cast=bool
+)
+SECURE_HSTS_PRELOAD = config("SECURE_HSTS_PRELOAD", default=False, cast=bool)
+
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+X_FRAME_OPTIONS = "DENY"
+
+# Hinter einem Reverse Proxy erkennt Django HTTPS nur an diesem Kopf.
+# Voraussetzung: der Proxy setzt ihn selbst und laesst ihn nicht durch.
+if config("BEHIND_TLS_PROXY", default=HTTPS, cast=bool):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Bis wohin ein Token gilt. 0 heisst: unbegrenzt, wie bisher.
+TOKEN_MAX_AGE_HOURS = config("TOKEN_MAX_AGE_HOURS", default=12, cast=int)
+
+# Wie lange ein Link zum Zuruecksetzen des Passworts gilt (Sekunden).
+PASSWORD_RESET_TIMEOUT = config("PASSWORD_RESET_TIMEOUT", default=3600, cast=int)
+
+# Adresse der Weboberflaeche - fuer Links in Mails, die ausserhalb eines
+# Requests entstehen (Celery kennt keinen Host).
+PUBLIC_WEB_URL = config("PUBLIC_WEB_URL", default="http://localhost:3000", cast=str)
 
 # API-only backend configuration
 # No login URLs needed
@@ -250,7 +421,30 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {"max_retries": 1}
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_BROKER_CONNECTION_TIMEOUT = 3
 
+# Wie lange das Aenderungsprotokoll aufbewahrt wird (Tage). 0 schaltet das
+# Aufraeumen ab.
+#
+# Die Frist ist die Bedingung dafuer, dass die Protokolldomaene ueberhaupt
+# mitgeschrieben werden kann: ein Protokollabend erzeugt ein Dutzend
+# Eintraege, und ohne Grenze waere die Tabelle in zwei Jahren groesser als
+# die Fachdaten.
+AUDIT_RETENTION_DAYS = config("AUDIT_RETENTION_DAYS", default=1095, cast=int)
+
+# Traegertrennung scharf stellen.
+#
+# Ohne diesen Schalter sehen Konten OHNE Personaldatensatz weiterhin alles -
+# bewusst, damit bestehende Verwaltungskonten nach einem Update nicht vor
+# einer leeren Anwendung stehen. Sobald jedem Konto ein Employee mit Traeger
+# zugeordnet ist, gehoert der Schalter auf True: dann sieht ein Konto ohne
+# Zuordnung nichts mehr (Superuser ausgenommen).
+STRICT_TENANCY = config("STRICT_TENANCY", default=False, cast=bool)
+
 CELERY_BEAT_SCHEDULE = {
+    "aenderungsprotokoll-aufraeumen": {
+        "task": "django_grp_org.aufraeumen_aenderungsprotokoll",
+        # Sonntagnacht: da stoert das Loeschen niemanden.
+        "schedule": crontab(hour=3, minute=30, day_of_week=0),
+    },
     "faellige-aufgaben-erinnern": {
         "task": "django_grp_mail.erinnere_an_faellige_aufgaben",
         # Jeden Morgen um sieben - vor dem Fruehdienst, nicht mitten in der
