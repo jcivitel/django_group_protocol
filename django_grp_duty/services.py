@@ -289,17 +289,21 @@ def vacation_balance(employee, year: int) -> dict:
 
 def slots_per_day(department, shift_types) -> dict[int, int]:
     """
-    Wie viele Plaetze je Dienstart und Tag gebraucht werden.
+    Wie viele Plaetze je Dienstart und Tag angelegt werden.
 
-    Die Zahl steht in den Besetzungsvorgaben des Bereichs: "im Tagdienst
-    muessen zwei da sein" heisst zwei Plaetze, nicht einen. Frueher legte der
-    Generator stur einen Dienst je Art und Tag an - damit war die Vorgabe
-    schon beim Anlegen verletzt, und wer eine zweite Person einteilen wollte,
-    hatte keine Zeile dafuer.
+    Angelegt wird jede gewaehlte Dienstart an jedem Tag - der Plan haelt
+    Plaetze bereit, er schreibt nicht vor, welche davon besetzt werden. Wer
+    im Kalender jemanden in den Spaetdienst ziehen will, braucht dort eine
+    Zeile, auch wenn die Vorgabe an dem Tag schon anders erfuellt ist.
 
-    Vorgaben mit Uhrzeit-Fenster bleiben hier aussen vor. Sie greifen quer
-    ueber die Dienstarten, und welche davon die Luecke fuellen soll, laesst
-    sich nicht ausrechnen - das prueft die Regelpruefung hinterher.
+    Verlangt eine Besetzungsvorgabe mehrere Personen in einer Dienstart -
+    "im Tagdienst muessen zwei da sein" -, entstehen entsprechend viele
+    Plaetze. Ohne Vorgabe bleibt es bei einem.
+
+    WELCHE Plaetze am Ende besetzt werden, entscheidet der Automat je Tag
+    (siehe `autofill.py`): Tag und Nacht am einen, der 24-Stunden-Dienst am
+    anderen. Was nicht gebraucht wird, bleibt leer stehen - und die
+    Regelpruefung meldet es nicht, solange die Zeit gedeckt ist.
     """
     from .models import StaffingRequirement
 
@@ -339,7 +343,9 @@ def generate_shifts(plan, shift_types, weekdays=None) -> int:
         if weekdays is not None and current.weekday() not in weekdays:
             continue
         for shift_type in shift_types:
-            fehlt = bedarf[shift_type.id] - vorhanden.get((current, shift_type.id), 0)
+            fehlt = bedarf.get(shift_type.id, 0) - vorhanden.get(
+                (current, shift_type.id), 0
+            )
             for _ in range(max(0, fehlt)):
                 Shift.objects.create(plan=plan, date=current, shift_type=shift_type)
                 created += 1
