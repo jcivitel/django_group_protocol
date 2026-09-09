@@ -158,6 +158,12 @@ urlpatterns = [
         duty_api.DutyPlanRulesView.as_view(),
         name="duty-plan-rules",
     ),
+    # Was ein Monat kosten wuerde, bevor er angelegt wird.
+    path(
+        "v1/duty-plan/<int:plan_id>/bedarf/",
+        duty_api.DutyPlanBedarfView.as_view(),
+        name="duty-plan-bedarf",
+    ),
     path(
         "v1/duty-plan/<int:plan_id>/generate/",
         duty_api.DutyPlanGenerateView.as_view(),
