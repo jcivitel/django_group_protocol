@@ -42,6 +42,12 @@ jobs:
       # jemand später wieder lesen muss.
       SECRET_KEY: ci-lauf-schluessel-ohne-bedeutung-0123456789-abcdefghij
       DEBUG: "False"
+      # Ohne diese Zeile faellt HTTPS auf `not DEBUG` zurueck, also True.
+      # Dann steht SECURE_SSL_REDIRECT, und der Testclient bekommt auf jede
+      # Anfrage eine 301 auf https - 94 Tests scheitern an derselben Zeile.
+      # Die Betriebspruefung weiter unten setzt HTTPS fuer sich selbst auf
+      # True; geprueft wird dort ja genau die Konfiguration des Betriebs.
+      HTTPS: "False"
       ALLOWED_HOSTS: localhost,127.0.0.1
       MAIN_DATABASE_ENGINE: django.db.backends.mysql
       MAIN_DATABASE_NAME: grp-proto
