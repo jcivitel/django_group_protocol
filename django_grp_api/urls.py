@@ -259,6 +259,11 @@ urlpatterns = [
         # Erwaehnungen sucht die Datenbank, nicht das Frontend. Steht als
         # eigener Pfad und nicht im verschachtelten Router: es ist keine
         # Sammlung, sondern eine Frage.
+        "v1/suche/",
+        views.SucheView.as_view(),
+        name="suche",
+    ),
+    path(
         "v1/resident/<int:resident_id>/mentions/",
         views.ResidentMentionsView.as_view(),
         name="resident-mentions",

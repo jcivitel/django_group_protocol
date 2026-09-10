@@ -328,6 +328,38 @@ stehen im Rumpf der Anfrage, und das ViewSet filtert nur, was es herausgibt.
 Die Meldung selbst entsteht im Frontend als PDF unter
 `/api/vorkommnisse/{id}/meldung`.
 
+### Volltextsuche
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/suche/?q=…` | GET | Protokolle, Verlauf und Bewohner der eigenen Gruppen |
+
+Antwort: `begriffe` (die Wörter, nach denen tatsächlich gesucht wurde),
+`hinweis` (gesetzt, wenn die Eingabe kürzer als drei Zeichen war) und
+`gruppen` — je Art eine Liste fertiger Zeilen mit `titel`, `unterzeile`,
+`ausschnitt` und `pfad`. Nur Gruppen mit Treffern kommen mit.
+
+**Wie gesucht wird.** MariaDB-`FULLTEXT` im Boolean-Modus, `+wort*` je Wort:
+alle müssen vorkommen, jedes darf am Anfang stehen. Der Stern ist kein
+Komfort, sondern Notwendigkeit — InnoDB kennt keine deutsche
+Wortstammbildung, und ohne ihn fände „Medikament" kein „Medikamentenplan".
+Bewohnernamen laufen nicht über den Volltextindex, sondern über einen
+Präfixvergleich: „Brand" findet Brandhorst, „andhorst" nicht.
+
+**Was die Suche nicht durchsucht.** Fallakten und geschützte Vermerke. Eine
+Suche, die Treffer aus Akten anzeigt, die man in der Liste nicht sehen darf,
+ist eine Umgehung der Rechte mit Komfortbegründung.
+
+**Zum Tempo.** Gemessen an 48.000 Protokollpunkten: `MATCH` mit
+Gruppenfilter 17 ms, mit `ORDER BY protocol_date` 64 ms. Deshalb holt die
+Suche ein Fenster von 200 Zeilen in der Relevanzordnung des Index und
+sortiert es danach in Python. Bei einem sehr häufigen Wort sind das die
+neuesten unter den 200 treffendsten und nicht die neuesten überhaupt.
+
+Eigener Bremsklotz (`THROTTLE_SUCHE`, ab Werk 60 Anfragen je Minute): beim
+Tippen entstehen ein paar Anfragen je Sekunde, bei einem Skript ein paar
+hundert.
+
 ### Erwähnungen einer Person
 
 | Endpoint | Method | Purpose |

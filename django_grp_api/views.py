@@ -20,6 +20,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from .guards import ProtokollGesperrt, protokoll_fuer, schreibbares_protokoll
 from django_grp_backend.access import WriteNeedsRole, is_admin, may_read_only
 from django_grp_backend.functions import upload_too_large
+from django_grp_backend.suche import suchen
 from django_grp_backend.models import (
     ChecklistItem,
     Incident,
@@ -861,6 +862,60 @@ class MentionAutocompleteView(APIView):
         ]
 
         return Response(data, status=status.HTTP_200_OK)
+
+
+class SucheView(APIView):
+    """
+    Volltextsuche ueber Protokolle, Verlauf und Bewohner.
+
+    /api/v1/suche/?q=...
+
+    Sucht nur in den eigenen Gruppen. Das ist keine Bequemlichkeitsgrenze:
+    eine Suche, die Treffer aus Akten anzeigt, die man in der Liste nicht
+    sehen darf, ist eine Umgehung der Rechte mit Komfortbegruendung.
+
+    Fallakten sind ausgenommen. Wenn sie dazukommen, gehoeren sie ueber
+    accessible_case_files() gefiltert und nicht ueber die
+    Gruppenzugehoerigkeit.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    # Eine Suche ist billiger als ein Export und teurer als eine Liste. Der
+    # eigene Topf haelt jemanden davon ab, mit einer Schleife den Bestand
+    # abzugrasen.
+    throttle_scope = "suche"
+
+    def get(self, request):
+        ergebnis = suchen(request.user, request.query_params.get("q", ""))
+        return Response(
+            {
+                "begriffe": ergebnis["begriffe"],
+                "hinweis": ergebnis["hinweis"],
+                "gruppen": [
+                    {
+                        "art": art,
+                        "titel": titel,
+                        "treffer": [
+                            {
+                                "id": eintrag.id,
+                                "titel": eintrag.titel,
+                                "unterzeile": eintrag.unterzeile,
+                                "ausschnitt": eintrag.ausschnitt,
+                                "pfad": eintrag.pfad,
+                            }
+                            for eintrag in ergebnis[schluessel]
+                        ],
+                    }
+                    for art, schluessel, titel in (
+                        ("protokoll", "protokolle", "Protokolle"),
+                        ("verlauf", "verlauf", "Verlauf"),
+                        ("bewohner", "bewohner", "Bewohner"),
+                    )
+                    if ergebnis[schluessel]
+                ],
+            }
+        )
 
 
 class ResidentMentionsView(APIView):

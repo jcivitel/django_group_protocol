@@ -347,6 +347,11 @@ REST_FRAMEWORK = {
         "user": config("THROTTLE_USER", default="1200/min", cast=str),
         "login": config("THROTTLE_LOGIN", default="10/min", cast=str),
         "passwort": config("THROTTLE_PASSWORT", default="5/min", cast=str),
+        # Eine Suche ist billiger als ein Export und teurer als eine Liste.
+        # Der eigene Topf haelt jemanden davon ab, mit einer Schleife den
+        # Bestand abzugrasen - beim Tippen entstehen ein paar Anfragen je
+        # Sekunde, bei einem Skript ein paar hundert.
+        "suche": config("THROTTLE_SUCHE", default="60/min", cast=str),
     },
 }
 
