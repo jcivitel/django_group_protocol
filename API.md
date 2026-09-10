@@ -243,6 +243,99 @@ absteigend, dann `position`: im Notfall steht oben, wer zuerst angerufen wird.
 `has_custody` und `is_emergency` sind absichtlich getrennt. Wer entscheiden
 darf, ist nicht zwingend wer erreichbar ist.
 
+### Bewohnerakte: Gesundheit, Alltag, Unterlagen
+
+Alles, was unter `/api/v1/resident/{id}/` hängt, folgt derselben Regel wie
+die Kontakte: `resident` ist read-only und kommt aus der URL. Wer die Akte
+sehen darf, sieht auch diese Listen — ausdrücklich auch die Aushilfe im
+Wochenenddienst. Eine Allergie, die im Ernstfall niemand findet, ist die
+gefährlichste Lücke einer Akte.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/resident/{id}/allergy/` | CRUD | Allergien und Unverträglichkeiten |
+| `/api/v1/resident/{id}/consent/` | CRUD | Einwilligungen |
+| `/api/v1/resident/{id}/absence/` | CRUD | An- und Abwesenheit |
+| `/api/v1/resident/{id}/medication/` | CRUD | Medikationsplan |
+| `/api/v1/resident/{id}/administration/` | GET, POST | Nachweis der Gabe |
+| `/api/v1/resident/{id}/checklist/` | CRUD | Aufnahme- und Entlassungscheckliste |
+| `/api/v1/resident/{id}/pocket-money/` | CRUD | Barbetrag nach § 39 SGB VIII |
+| `/api/v1/incident/` | CRUD | Besondere Vorkommnisse (`?bewohner=`) |
+
+**Allergien.** Felder `kind` (`food`, `medication`, `insect`, `material`,
+`other`), `name`, `severity` (`mild`, `moderate`, `severe`), `reaction`,
+`note`. Read-only kommen `kind_display`, `severity_display` und
+`is_critical` dazu. `is_critical` ist genau dann wahr, wenn `severity` auf
+`severe` steht — nur diese Allergien erscheinen in der Kopfzeile der
+Bewohnerseite und in `critical_allergies` der Bewohnerliste. Eine Warnung,
+die überall steht, ist keine.
+
+**Einwilligungen.** Felder `subject` (`photo_internal`, `photo_external`,
+`outing`, `swimming`, `medical`, `medication`, `data_school`,
+`data_therapy`, `transport`, `other`), `granted`, `granted_by`,
+`granted_on`, `valid_until`, `revoked_on`, `note`. Read-only kommt `status`
+dazu: `valid`, `expired`, `revoked`, `denied` oder `pending`. Der Status
+wird gerechnet und nicht gespeichert — eine Einwilligung läuft ab, während
+niemand hinsieht. Ein Widerruf setzt `revoked_on` und lässt die Zeile
+stehen: dass eine Einwilligung damals galt, kann später die entscheidende
+Frage sein.
+
+**Abwesenheit.** Felder `kind` (`home`, `holiday`, `clinic`,
+`unauthorised`, `other`), `start_date`, `end_date`, `counts_as_occupied`,
+`note`; read-only `kind_display` und `is_running`. Ein leeres `end_date`
+heißt: läuft noch. `counts_as_occupied` beantwortet die zweite Frage an
+denselben Zeilen — wie viele Belegungstage der Monat rechnet. Heimfahrt und
+Ferien zählen üblicherweise weiter, eine längere Klinikunterbringung nicht;
+das ist gegen die Entgeltvereinbarung zu prüfen und deshalb ein Feld und
+keine Regel im Code.
+
+**Medikationsplan.** Felder `agent` (Wirkstoff), `product`, `dose`, `times`
+(Liste von Uhrzeiten als Zeichenketten), `as_needed`, `prescribed_by`,
+`valid_from`, `valid_to`, `note`; read-only `is_current` und
+`administrations` (die 30 jüngsten Gaben).
+
+**Nachweis der Gabe — nur anlegen und lesen.** Kein PUT, kein PATCH, kein
+DELETE, und zwar nicht bloß, weil die Route fehlt: `MedicationAdministration`
+wirft in `save()` und `delete()`. Eine Berichtigung ist eine neue Zeile mit
+`corrects` auf der Nummer der alten. Felder `medication`, `scheduled_for`,
+`given_at`, `amount`, `skipped`, `reason`, `corrects`. `given_by` und
+`given_by_name` sind read-only und kommen aus der Anmeldung — der Name fällt
+beim Eintragen fest, damit der Nachweis ein gelöschtes Konto überlebt. Eine
+ausgelassene Gabe ohne `reason` wird abgewiesen: eine Lücke im Nachweis
+sieht später wie Vergessen aus.
+
+**Checkliste.** Felder `kind` (`admission`, `discharge`), `title`,
+`done_on`, `done_by`, `note`, `position`. Abgehakt wird über `done_on`.
+
+**Barbetrag.** Felder `date`, `kind` (`credit`, `payout`, `correction`),
+`amount`, `note`; read-only `kind_display`, `signed_amount` und
+`recorded_by` (aus der Anmeldung). Der Betrag ist immer positiv, die Art
+entscheidet das Vorzeichen. Es gibt kein Kontomodell: der Stand ist die
+Summe der `signed_amount`. Ein gespeicherter Saldo wäre nach der ersten
+nachgetragenen Zeile falsch.
+
+**Besondere Vorkommnisse nach § 47 SGB VIII.** Hängen an der Gruppe und
+nicht am Bewohner — ein Wasserschaden betrifft alle, und `resident` darf
+leer bleiben. Felder `group`, `resident`, `kind` (`absence`, `violence`,
+`self_harm`, `accident`, `police`, `suspicion`, `substance`, `other`),
+`occurred_at`, `description`, `immediate_action`, `participants`,
+`reported_to`, `reported_at`, `status` (`open`, `reported`, `closed`).
+Read-only kommen `needs_report` (offen und noch nicht gemeldet),
+`recorded_by_name`, `group_name` und `resident_name` dazu. `group` und
+`resident` werden gegen die Sichtbarkeit des Kontos geprüft — beide Nummern
+stehen im Rumpf der Anfrage, und das ViewSet filtert nur, was es herausgibt.
+
+Die Meldung selbst entsteht im Frontend als PDF unter
+`/api/vorkommnisse/{id}/meldung`.
+
+### Schule an der Bewohnerakte
+
+`Resident` trägt zusätzlich `school`, `school_class` und `school_contact`.
+Drei Felder, die im Alltag einiges ersparen: wer am Morgen krankmelden muss,
+braucht die Nummer der Klassenleitung und nicht die Erinnerung, wer sie
+zuletzt hatte. Die schulische Entwicklung gehört in den Hilfeplan, nicht
+hierher.
+
 ### Protocol Endpoints
 
 | Endpoint | Method | Auth | Purpose |

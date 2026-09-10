@@ -9,7 +9,7 @@ from django.contrib.auth.models import User
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
-from rest_framework import viewsets, status
+from rest_framework import mixins, viewsets, status
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
@@ -21,6 +21,12 @@ from .guards import ProtokollGesperrt, protokoll_fuer, schreibbares_protokoll
 from django_grp_backend.access import WriteNeedsRole, is_admin, may_read_only
 from django_grp_backend.functions import upload_too_large
 from django_grp_backend.models import (
+    ChecklistItem,
+    Incident,
+    Medication,
+    MedicationAdministration,
+    PocketMoneyEntry,
+    ResidentAbsence,
     Allergy,
     Consent,
     Protocol,
@@ -44,6 +50,12 @@ from .serializers import (
     ResidentSerializer,
     AllergySerializer,
     ConsentSerializer,
+    ChecklistItemSerializer,
+    IncidentSerializer,
+    MedicationAdministrationSerializer,
+    MedicationSerializer,
+    PocketMoneyEntrySerializer,
+    ResidentAbsenceSerializer,
     ResidentContactSerializer,
     ResidentPictureUploadSerializer,
     ItemSerializer,
@@ -331,6 +343,145 @@ class ConsentViewSet(ResidentScopedViewSet):
 
     serializer_class = ConsentSerializer
     model = Consent
+
+
+class ResidentAbsenceViewSet(ResidentScopedViewSet):
+    """
+    An- und Abwesenheit eines Kindes.
+
+    /api/v1/resident/{resident_id}/absence/
+    """
+
+    serializer_class = ResidentAbsenceSerializer
+    model = ResidentAbsence
+
+
+class MedicationViewSet(ResidentScopedViewSet):
+    """
+    Medikationsplan.
+
+    /api/v1/resident/{resident_id}/medication/
+    """
+
+    serializer_class = MedicationSerializer
+    model = Medication
+
+    def get_queryset(self):
+        resident = self.get_resident()
+        if resident is None:
+            return Medication.objects.none()
+        return Medication.objects.filter(resident=resident).prefetch_related(
+            "administrations"
+        )
+
+
+class MedicationAdministrationViewSet(
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """
+    Der Nachweis der Gabe.
+
+    /api/v1/resident/{resident_id}/administration/
+
+    **Nur anlegen und lesen.** Kein PUT, kein DELETE - und zwar nicht bloss,
+    weil die Route fehlt, sondern weil das Modell es verweigert. Wer eine
+    Gabe berichtigen muss, legt eine neue Zeile mit `corrects` an.
+
+    Wer eintraegt, steht im Nachweis: `given_by` kommt aus der Anmeldung und
+    laesst sich nicht mitschicken.
+    """
+
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
+    serializer_class = MedicationAdministrationSerializer
+
+    def get_resident(self):
+        return (
+            Resident.objects.for_user(self.request.user)
+            .filter(id=self.kwargs.get("resident_pk"))
+            .first()
+        )
+
+    def get_queryset(self):
+        resident = self.get_resident()
+        if resident is None:
+            return MedicationAdministration.objects.none()
+        return MedicationAdministration.objects.filter(
+            medication__resident=resident
+        ).select_related("medication")
+
+    def perform_create(self, serializer):
+        resident = self.get_resident()
+        if resident is None:
+            raise ValidationError("Bewohner nicht gefunden oder kein Zugriff.")
+        medikament = serializer.validated_data.get("medication")
+        if medikament is None or medikament.resident_id != resident.id:
+            raise ValidationError("Das Medikament gehört nicht zu dieser Person.")
+
+        benutzer = self.request.user
+        serializer.save(
+            given_by=benutzer,
+            # Der Name faellt fest, damit der Nachweis lesbar bleibt, wenn
+            # das Konto spaeter geloescht wird.
+            given_by_name=(benutzer.get_full_name() or benutzer.username),
+        )
+
+
+class ChecklistItemViewSet(ResidentScopedViewSet):
+    """Aufnahme- und Entlassungscheckliste."""
+
+    serializer_class = ChecklistItemSerializer
+    model = ChecklistItem
+
+
+class PocketMoneyEntryViewSet(ResidentScopedViewSet):
+    """
+    Buchungen auf dem Barbetrag nach § 39 SGB VIII.
+
+    Wer gebucht hat, kommt aus der Anmeldung. Ein Kassenbuch, in dem man den
+    Namen frei eintippt, beantwortet die Frage nicht, fuer die es da ist.
+    """
+
+    serializer_class = PocketMoneyEntrySerializer
+    model = PocketMoneyEntry
+
+    def perform_create(self, serializer):
+        resident = self.get_resident()
+        if resident is None:
+            raise ValidationError("Bewohner nicht gefunden oder kein Zugriff.")
+        benutzer = self.request.user
+        serializer.save(
+            resident=resident,
+            recorded_by=(benutzer.get_full_name() or benutzer.username),
+        )
+
+
+class IncidentViewSet(viewsets.ModelViewSet):
+    """
+    Besondere Vorkommnisse nach § 47 SGB VIII.
+
+    Haengt an der Gruppe und nicht am Bewohner: nicht jedes Vorkommnis laesst
+    sich einer Person zuordnen. Sichtbar ist, was in den eigenen Gruppen
+    passiert ist.
+    """
+
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
+    serializer_class = IncidentSerializer
+
+    def get_queryset(self):
+        gruppen = Group.objects.for_user(self.request.user)
+        queryset = Incident.objects.filter(group__in=gruppen).select_related(
+            "group", "resident"
+        )
+        bewohner = self.request.query_params.get("bewohner")
+        if bewohner:
+            queryset = queryset.filter(resident_id=bewohner)
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(recorded_by=self.request.user)
 
 
 class ResidentContactViewSet(viewsets.ModelViewSet):

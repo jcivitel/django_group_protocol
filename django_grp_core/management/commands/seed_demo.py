@@ -29,7 +29,15 @@ from django.db import transaction
 from django.utils import timezone
 
 from django_grp_backend.models import (
+    Allergy,
+    ChecklistItem,
+    Consent,
     Group,
+    Incident,
+    Medication,
+    MedicationAdministration,
+    PocketMoneyEntry,
+    ResidentAbsence,
     Protocol,
     ProtocolAttendance,
     ProtocolItem,
@@ -231,6 +239,158 @@ KONTAKTE = {
 }
 
 
+# Allergien. Eine schwere, damit die Warnzeile auf den Bildern zu sehen ist,
+# und eine leichte daneben - sonst sieht man nicht, dass nur die schwere
+# warnt.
+ALLERGIEN = {
+    "Nele Brandhorst": [
+        ("food", "Erdnuss", "severe", "Atemnot, Schwellung im Gesicht",
+         "Notfallset im Medikamentenschrank, Fach 3"),
+        ("other", "Birkenpollen", "mild", "tränende Augen im Frühjahr", ""),
+    ],
+    "Tim Ostermann": [
+        ("medication", "Penicillin", "moderate", "Ausschlag am Oberkörper",
+         "steht im Allergiepass"),
+    ],
+    "Amira Nasser": [
+        ("insect", "Wespenstich", "severe", "Kreislaufreaktion",
+         "Notfallset im Rucksack, bei Ausflügen mitnehmen"),
+    ],
+}
+
+# Einwilligungen. Eine abgelaufene und eine widerrufene sind Absicht: die
+# Statuszeile soll auf den Bildern zeigen, was sie in diesem Fall meldet.
+EINWILLIGUNGEN = {
+    "Nele Brandhorst": [
+        ("photo_internal", True, "Andrea Brandhorst", 400, None, None, ""),
+        ("photo_external", False, "Andrea Brandhorst", 400, None, None,
+         "ausdrücklich nicht erteilt"),
+        ("outing", True, "Andrea Brandhorst", 400, None, None, ""),
+        ("medical", True, "Andrea Brandhorst", 400, None, None, ""),
+    ],
+    "Yusuf Kaya": [
+        ("photo_internal", True, "Jugendamt Talheim", 250, 20, None,
+         "Gültigkeit abgelaufen, Nachfrage läuft"),
+        ("swimming", True, "Jugendamt Talheim", 250, None, None, ""),
+        ("medication", True, "Jugendamt Talheim", 250, None, None, ""),
+    ],
+    "Lina Wegener": [
+        ("photo_external", True, "Frank Wegener", 170, None, 30,
+         "vom Vater widerrufen"),
+        ("transport", True, "Frank Wegener", 170, None, None, ""),
+    ],
+    "Tim Ostermann": [
+        ("medical", True, "Jugendamt Seewalde", 90, None, None, ""),
+        ("data_school", True, "Jugendamt Seewalde", 90, None, None, ""),
+    ],
+}
+
+# Schule: drei Zeilen genügen für ein Bildschirmfoto.
+SCHULEN = {
+    "Nele Brandhorst": ("Gesamtschule Am Mühlenberg", "8b",
+                        "Frau Harms, Klassenleitung, 05121 447700"),
+    "Yusuf Kaya": ("Berufskolleg Talheim", "BFS 2",
+                   "Herr Sobotta, Bildungsgangleitung, 05121 448120"),
+    "Amira Nasser": ("Grundschule Lindenhof", "6a",
+                     "Frau Özdemir, Klassenleitung, 05121 446310"),
+}
+
+# Abwesenheiten: eine laufende, eine abgeschlossene, eine unerlaubte. Die
+# drei Faelle, die im Alltag unterschiedlich aussehen.
+ABWESENHEITEN = {
+    "Nele Brandhorst": [
+        ("home", 2, 0, True, "Wochenende bei der Mutter"),
+        ("holiday", 45, 38, True, "Herbstferien bei den Großeltern"),
+    ],
+    "Yusuf Kaya": [
+        ("clinic", 30, 16, False, "Kinder- und Jugendpsychiatrie Seewalde"),
+    ],
+    "Jonas Kirchhoff": [
+        ("unauthorised", 9, 8, True, "über Nacht nicht zurückgekehrt"),
+    ],
+}
+
+# Medikation. Ein Dauermedikament mit festen Zeiten, eines nach Bedarf und
+# eine beendete Verordnung - damit der Plan auf dem Bild die drei Zustaende
+# zeigt.
+MEDIKATION = {
+    "Tim Ostermann": [
+        ("Methylphenidat", "Medikinet retard 20 mg", "1 Kapsel",
+         ["07:30"], False, "Dr. Linde, Kinderarztpraxis am Markt", 95, None,
+         "zum Frühstück geben, nicht teilen"),
+        ("Ibuprofen", "Ibuflam 200 mg", "1 Tablette", [], True,
+         "Dr. Linde, Kinderarztpraxis am Markt", 95, None,
+         "höchstens dreimal täglich, bei Kopfschmerzen"),
+    ],
+    "Yusuf Kaya": [
+        ("Sertralin", "Zoloft 50 mg", "1 Tablette", ["08:00"], False,
+         "KJP Seewalde, Dr. Arndt", 120, None, ""),
+        ("Amoxicillin", "Amoxi 500 mg", "1 Tablette", ["08:00", "14:00", "20:00"],
+         False, "Dr. Linde, Kinderarztpraxis am Markt", 40, 30,
+         "Mittelohrentzündung, Verordnung abgeschlossen"),
+    ],
+}
+
+# Aufnahmecheckliste fuer die juengste Aufnahme: teilweise erledigt, denn
+# eine Liste, auf der alles abgehakt ist, zeigt nichts.
+CHECKLISTE = [
+    ("Hilfeplan und Kostenzusage liegen vor", 38),
+    ("Aufnahmegespräch geführt und dokumentiert", 38),
+    ("Sorgerecht geklärt, Vollmachten schriftlich", 36),
+    ("Krankenversicherungskarte und Impfpass", 35),
+    ("Hausarzt, Zahnarzt, Fachärzte eingetragen", 30),
+    ("Allergien und Medikation erfasst", 38),
+    ("Einwilligungen unterschrieben (Fotos, Ausflüge, Behandlung)", None),
+    ("Schule angemeldet, Ansprechperson notiert", 28),
+    ("Zimmer eingerichtet, Erstausstattung geprüft", 39),
+    ("Barbetrag eingerichtet", 37),
+    ("Hausordnung besprochen", 38),
+    ("Beschwerdeweg erklärt (§ 45 SGB VIII)", None),
+    ("Bezugsbetreuung festgelegt", 39),
+    ("Notfallkontakte in der Gruppe ausgehängt", None),
+]
+
+# Barbetrag: drei Monate Gutschrift und ein paar Auszahlungen. Der Stand
+# soll positiv und krumm sein, nicht rund.
+BARBETRAG = {
+    "Nele Brandhorst": [
+        ("credit", 62, "38.00", "Taschengeld Monat"),
+        ("payout", 55, "12.50", "Kino mit der Gruppe"),
+        ("payout", 48, "8.00", "Eisdiele"),
+        ("credit", 32, "38.00", "Taschengeld Monat"),
+        ("payout", 24, "22.90", "Kopfhörer"),
+        ("credit", 2, "38.00", "Taschengeld Monat"),
+    ],
+    "Amira Nasser": [
+        ("credit", 35, "32.00", "Taschengeld Monat"),
+        ("payout", 27, "6.50", "Schwimmbad"),
+        ("credit", 5, "32.00", "Taschengeld Monat"),
+        ("correction", 3, "2.00", "Rückgabe, Pfand zu viel gerechnet"),
+    ],
+}
+
+# Ein Vorkommnis je Stand: gemeldet und abgeschlossen. Kein offenes - ein
+# Demo-Bestand, der eine Warnung zeigt, die niemand abarbeiten kann, ist
+# nur Laerm.
+VORKOMMNISSE = [
+    ("Jonas Kirchhoff", 0, "absence", 8, 21, 30,
+     "Jonas kehrte bis 22 Uhr nicht von einem Treffen mit Freunden zurück "
+     "und war telefonisch nicht erreichbar. Gegen 1:30 Uhr kam er "
+     "selbstständig zurück.",
+     "Erreichbare Kontakte abtelefoniert, Polizei um 23:45 Uhr informiert, "
+     "Nachtdienst blieb wach. Am Folgetag Gespräch mit Bezugsbetreuung.",
+     "Jonas Kirchhoff, Nachtdienst, Polizei Talheim, Bezugsbetreuung",
+     "Landesjugendamt, Jugendamt Talheim", 8, 9, "reported"),
+    (None, 1, "accident", 26, 15, 40,
+     "Im Bad der oberen Etage löste sich eine Duschstange aus der Wand. "
+     "Niemand wurde verletzt.",
+     "Bad gesperrt, Hausmeisterdienst am selben Tag beauftragt, Stange am "
+     "Folgetag neu verdübelt.",
+     "Hausmeisterdienst, Gruppenleitung",
+     "Landesjugendamt", 26, 10, "closed"),
+]
+
+
 class Command(BaseCommand):
     help = "Legt einen Demo-Träger mit erfundenen Namen an (für Bildschirmfotos)."
 
@@ -266,6 +426,7 @@ class Command(BaseCommand):
         self._zeiten(personen)
         self._wuensche(traeger, personen)
         self._hilfeplanung(traeger, bewohner, personen)
+        self._akte(bewohner, personen)
 
         self._passwort(options["passwort"])
         self._bilanz(traeger)
@@ -853,6 +1014,242 @@ class Command(BaseCommand):
             )
 
     # ----------------------------------------------------------------- Abschluss
+
+    # ------------------------------------------------------------ Bewohnerakte
+
+    def _akte(self, bewohner, personen):
+        """
+        Allergien, Einwilligungen, Schule, Abwesenheit, Medikation,
+        Checkliste, Barbetrag und zwei Vorkommnisse.
+
+        Alles an einer Stelle, weil es zusammen eine Akte ergibt und weil die
+        Bildschirmfotos der Wissensdatenbank genau diese Mischung brauchen:
+        je Bereich ein Fall, der etwas zeigt, und kein Bestand, der nur
+        vollgeschrieben aussieht.
+        """
+        nach_name = {f"{b.first_name} {b.last_name}": b for b in bewohner}
+        mitarbeit = personen[0] if personen else None
+        # `given_by` und `recorded_by` haengen am Benutzerkonto, nicht am
+        # Personaldatensatz - ein Employee ohne Konto kann nichts eintragen.
+        konto = getattr(mitarbeit, "user", None)
+        name_konto = (
+            mitarbeit.get_full_name() if mitarbeit else "Bezugsbetreuung"
+        )
+
+        for name, zeilen in ALLERGIEN.items():
+            person = nach_name.get(name)
+            if person is None:
+                continue
+            for art, bezeichnung, schwere, reaktion, hinweis in zeilen:
+                Allergy.objects.get_or_create(
+                    resident=person,
+                    name=bezeichnung,
+                    defaults={
+                        "kind": art,
+                        "severity": schwere,
+                        "reaction": reaktion,
+                        "note": hinweis,
+                    },
+                )
+
+        for name, zeilen in EINWILLIGUNGEN.items():
+            person = nach_name.get(name)
+            if person is None:
+                continue
+            for gegenstand, erteilt, von, vor, endet, widerrufen, hinweis in zeilen:
+                Consent.objects.get_or_create(
+                    resident=person,
+                    subject=gegenstand,
+                    defaults={
+                        "granted": erteilt,
+                        "granted_by": von,
+                        "granted_on": self.heute - timedelta(days=vor),
+                        "valid_until": (
+                            self.heute - timedelta(days=endet)
+                            if endet is not None
+                            else None
+                        ),
+                        "revoked_on": (
+                            self.heute - timedelta(days=widerrufen)
+                            if widerrufen is not None
+                            else None
+                        ),
+                        "note": hinweis,
+                    },
+                )
+
+        for name, (schule, klasse, kontakt) in SCHULEN.items():
+            person = nach_name.get(name)
+            if person is None or person.school:
+                continue
+            person.school = schule
+            person.school_class = klasse
+            person.school_contact = kontakt
+            person.save(update_fields=["school", "school_class", "school_contact"])
+
+        for name, zeilen in ABWESENHEITEN.items():
+            person = nach_name.get(name)
+            if person is None:
+                continue
+            for art, von, bis, belegt, hinweis in zeilen:
+                ResidentAbsence.objects.get_or_create(
+                    resident=person,
+                    kind=art,
+                    start_date=self.heute - timedelta(days=von),
+                    defaults={
+                        # bis == 0 heisst: laeuft noch.
+                        "end_date": (
+                            self.heute - timedelta(days=bis) if bis else None
+                        ),
+                        "counts_as_occupied": belegt,
+                        "note": hinweis,
+                    },
+                )
+
+        for name, zeilen in MEDIKATION.items():
+            person = nach_name.get(name)
+            if person is None:
+                continue
+            for (
+                wirkstoff,
+                praeparat,
+                dosis,
+                zeiten,
+                bedarf,
+                verordnet,
+                ab,
+                bis,
+                hinweis,
+            ) in zeilen:
+                medikament, neu = Medication.objects.get_or_create(
+                    resident=person,
+                    agent=wirkstoff,
+                    defaults={
+                        "product": praeparat,
+                        "dose": dosis,
+                        "times": zeiten,
+                        "as_needed": bedarf,
+                        "prescribed_by": verordnet,
+                        "valid_from": self.heute - timedelta(days=ab),
+                        "valid_to": (
+                            self.heute - timedelta(days=bis)
+                            if bis is not None
+                            else None
+                        ),
+                        "note": hinweis,
+                    },
+                )
+                if not neu or not zeiten or bis is not None:
+                    continue
+                # Sieben Tage Nachweis. Eine Gabe fehlt mit Grund - eine
+                # lueckenlose Reihe zeigt nicht, wie eine Luecke aussieht.
+                for tag in range(7, 0, -1):
+                    stunde, minute = (int(teil) for teil in zeiten[0].split(":"))
+                    zeitpunkt = timezone.make_aware(
+                        datetime.combine(
+                            self.heute - timedelta(days=tag), time(stunde, minute)
+                        )
+                    )
+                    ausgelassen = tag == 3
+                    MedicationAdministration.objects.get_or_create(
+                        medication=medikament,
+                        scheduled_for=zeitpunkt,
+                        defaults={
+                            "given_at": None if ausgelassen else zeitpunkt,
+                            "given_by": konto,
+                            "given_by_name": name_konto,
+                            "amount": "" if ausgelassen else dosis,
+                            "skipped": ausgelassen,
+                            "reason": (
+                                "Kind war zur Klassenfahrt abgereist, Gabe dort "
+                                "durch die Begleitung"
+                                if ausgelassen
+                                else ""
+                            ),
+                        },
+                    )
+
+        # Die juengste Aufnahme bekommt die Liste - dort ist sie plausibel.
+        juengste = max(bewohner, key=lambda b: b.moved_in_since, default=None)
+        if juengste is not None:
+            for platz, (titel, erledigt) in enumerate(CHECKLISTE):
+                ChecklistItem.objects.get_or_create(
+                    resident=juengste,
+                    kind="admission",
+                    title=titel,
+                    defaults={
+                        "done_on": (
+                            self.heute - timedelta(days=erledigt)
+                            if erledigt is not None
+                            else None
+                        ),
+                        "done_by": name_konto if erledigt is not None else "",
+                        "position": platz,
+                    },
+                )
+
+        for name, zeilen in BARBETRAG.items():
+            person = nach_name.get(name)
+            if person is None:
+                continue
+            for art, vor, betrag, hinweis in zeilen:
+                PocketMoneyEntry.objects.get_or_create(
+                    resident=person,
+                    date=self.heute - timedelta(days=vor),
+                    kind=art,
+                    amount=Decimal(betrag),
+                    defaults={"note": hinweis, "recorded_by": name_konto},
+                )
+
+        gruppen = list(Group.objects.order_by("id"))
+        for zeile in VORKOMMNISSE:
+            (
+                name,
+                gruppe_index,
+                art,
+                vor,
+                stunde,
+                minute,
+                hergang,
+                sofort,
+                beteiligte,
+                gemeldet_an,
+                gemeldet_vor,
+                gemeldet_stunde,
+                stand,
+            ) = zeile
+            if gruppe_index >= len(gruppen):
+                continue
+            zeitpunkt = timezone.make_aware(
+                datetime.combine(
+                    self.heute - timedelta(days=vor), time(stunde, minute)
+                )
+            )
+            Incident.objects.get_or_create(
+                group=gruppen[gruppe_index],
+                kind=art,
+                occurred_at=zeitpunkt,
+                defaults={
+                    "resident": nach_name.get(name) if name else None,
+                    "description": hergang,
+                    "immediate_action": sofort,
+                    "participants": beteiligte,
+                    "reported_to": gemeldet_an,
+                    "reported_at": timezone.make_aware(
+                        datetime.combine(
+                            self.heute - timedelta(days=gemeldet_vor),
+                            time(gemeldet_stunde, 0),
+                        )
+                    ),
+                    "status": stand,
+                    "recorded_by": konto,
+                },
+            )
+
+        self.stdout.write(
+            "  Bewohnerakte: Allergien, Einwilligungen, Schule, Abwesenheit, "
+            "Medikation, Checkliste, Barbetrag, Vorkommnisse"
+        )
 
     def _passwort(self, passwort: str):
         if not passwort:

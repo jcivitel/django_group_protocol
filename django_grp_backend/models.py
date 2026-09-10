@@ -267,6 +267,23 @@ class Resident(models.Model):
         upload_to=RandomizedFileName(),
         validators=[validate_image],
     )
+    school = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        verbose_name="Schule",
+        help_text="Der zweite Lebensmittelpunkt und der häufigste Anlass für Absprachen",
+    )
+    school_class = models.CharField(
+        max_length=30, blank=True, default="", verbose_name="Klasse"
+    )
+    school_contact = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        verbose_name="Klassenleitung",
+        help_text="Name und Erreichbarkeit",
+    )
     moved_in_since = models.DateField()
     moved_out_since = models.DateField(default=None, null=True, blank=True)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
@@ -996,3 +1013,14 @@ class Consent(models.Model):
             "denied": "Nicht erteilt",
             "pending": "Gilt ab später",
         }[self.status]
+
+
+# Die uebrige Bewohnerakte. Am Ende, weil sie Resident von hier braucht.
+from .akte import (  # noqa: E402,F401
+    ChecklistItem,
+    Incident,
+    Medication,
+    MedicationAdministration,
+    PocketMoneyEntry,
+    ResidentAbsence,
+)

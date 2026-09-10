@@ -3,6 +3,12 @@ from django.contrib.auth.models import User
 
 from django_grp_backend.access import ADMIN, SPECIALIST, access_level, employee_of
 from django_grp_backend.models import (
+    ChecklistItem,
+    Incident,
+    Medication,
+    MedicationAdministration,
+    PocketMoneyEntry,
+    ResidentAbsence,
     Allergy,
     Consent,
     Protocol,
@@ -208,6 +214,9 @@ class ResidentSerializer(EigeneGruppeMixin, serializers.ModelSerializer):
             "moved_in_since",
             "moved_out_since",
             "group",
+            "school",
+            "school_class",
+            "school_contact",
             "picture",
             "critical_allergies",
             "allergy_count",
@@ -295,6 +304,197 @@ class ConsentSerializer(serializers.ModelSerializer):
             "status_display",
         ]
         read_only_fields = ["resident"]
+
+
+class ResidentAbsenceSerializer(serializers.ModelSerializer):
+    """Wann ein Kind nicht da war."""
+
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+    is_running = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = ResidentAbsence
+        fields = [
+            "id",
+            "resident",
+            "kind",
+            "kind_display",
+            "start_date",
+            "end_date",
+            "counts_as_occupied",
+            "note",
+            "is_running",
+        ]
+        read_only_fields = ["resident"]
+
+
+class MedicationAdministrationSerializer(serializers.ModelSerializer):
+    """
+    Eine Gabe. Nur anlegen und lesen - aendern und loeschen sperrt das Modell.
+    """
+
+    class Meta:
+        model = MedicationAdministration
+        fields = [
+            "id",
+            "medication",
+            "scheduled_for",
+            "given_at",
+            "given_by",
+            "given_by_name",
+            "amount",
+            "skipped",
+            "reason",
+            "corrects",
+            "created_at",
+        ]
+        read_only_fields = ["given_by", "given_by_name", "created_at"]
+
+    def validate(self, attrs):
+        # Eine ausgelassene Gabe ohne Grund beantwortet die Frage nicht, um
+        # die es geht.
+        if attrs.get("skipped") and not (attrs.get("reason") or "").strip():
+            raise serializers.ValidationError(
+                {"reason": "Bei einer ausgelassenen Gabe gehört der Grund dazu."}
+            )
+        return attrs
+
+
+class MedicationSerializer(serializers.ModelSerializer):
+    """Ein Medikament mit den Gaben der letzten Tage."""
+
+    is_current = serializers.BooleanField(read_only=True)
+    administrations = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Medication
+        fields = [
+            "id",
+            "resident",
+            "agent",
+            "product",
+            "dose",
+            "times",
+            "as_needed",
+            "prescribed_by",
+            "valid_from",
+            "valid_to",
+            "note",
+            "is_current",
+            "administrations",
+        ]
+        read_only_fields = ["resident"]
+
+    def get_administrations(self, obj):
+        """
+        Nur die juengsten. Der Nachweis waechst taeglich; die Seite braucht
+        den Ueberblick und nicht das Archiv.
+        """
+        letzte = obj.administrations.all()[:30]
+        return MedicationAdministrationSerializer(letzte, many=True).data
+
+
+class IncidentSerializer(EigeneGruppeMixin, serializers.ModelSerializer):
+    """Ein besonderes Vorkommnis nach § 47 SGB VIII."""
+
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+    status_display = serializers.CharField(
+        source="get_status_display", read_only=True
+    )
+    needs_report = serializers.BooleanField(read_only=True)
+    resident_name = serializers.SerializerMethodField()
+    group_name = serializers.CharField(source="group.name", read_only=True)
+    recorded_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Incident
+        fields = [
+            "id",
+            "group",
+            "group_name",
+            "resident",
+            "resident_name",
+            "kind",
+            "kind_display",
+            "occurred_at",
+            "description",
+            "immediate_action",
+            "participants",
+            "reported_to",
+            "reported_at",
+            "status",
+            "status_display",
+            "needs_report",
+            "recorded_by_name",
+            "created_at",
+        ]
+        read_only_fields = ["created_at"]
+
+    def validate_resident(self, resident):
+        """
+        Dieselbe Luecke wie bei der Gruppe, eine Ebene tiefer: `resident` ist
+        schreibbar, und die Nummer kommt aus dem Rumpf der Anfrage.
+        """
+        if resident is None:
+            return resident
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not Resident.objects.for_user(user).filter(
+            id=resident.id
+        ).exists():
+            raise serializers.ValidationError(
+                "Diese Person steht dir nicht offen."
+            )
+        return resident
+
+    def get_resident_name(self, obj):
+        return obj.resident.get_full_name() if obj.resident else ""
+
+    def get_recorded_by_name(self, obj):
+        if obj.recorded_by is None:
+            return ""
+        return obj.recorded_by.get_full_name() or obj.recorded_by.username
+
+
+class ChecklistItemSerializer(serializers.ModelSerializer):
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+
+    class Meta:
+        model = ChecklistItem
+        fields = [
+            "id",
+            "resident",
+            "kind",
+            "kind_display",
+            "title",
+            "done_on",
+            "done_by",
+            "note",
+            "position",
+        ]
+        read_only_fields = ["resident"]
+
+
+class PocketMoneyEntrySerializer(serializers.ModelSerializer):
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+    signed_amount = serializers.DecimalField(
+        max_digits=8, decimal_places=2, read_only=True
+    )
+
+    class Meta:
+        model = PocketMoneyEntry
+        fields = [
+            "id",
+            "resident",
+            "date",
+            "kind",
+            "kind_display",
+            "amount",
+            "signed_amount",
+            "note",
+            "recorded_by",
+        ]
+        read_only_fields = ["resident", "recorded_by"]
 
 
 class ResidentContactSerializer(serializers.ModelSerializer):

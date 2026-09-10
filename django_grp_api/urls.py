@@ -33,6 +33,7 @@ from .views import (
 router = routers.DefaultRouter()
 router.register(r"protocol", views.ProtocolViewSet, "protocol")
 router.register(r"group", views.GroupViewSet, "group")
+router.register(r"incident", views.IncidentViewSet, "incident")
 router.register(r"resident", views.ResidentViewSet, "resident")
 router.register(r"template", views.ProtocolTemplateViewSet, "protocol-template")
 
@@ -112,6 +113,23 @@ resident_router.register(
 )
 resident_router.register(
     r"consent", views.ConsentViewSet, basename="resident-consent"
+)
+resident_router.register(
+    r"absence", views.ResidentAbsenceViewSet, basename="resident-absence"
+)
+resident_router.register(
+    r"medication", views.MedicationViewSet, basename="resident-medication"
+)
+resident_router.register(
+    r"administration",
+    views.MedicationAdministrationViewSet,
+    basename="resident-administration",
+)
+resident_router.register(
+    r"checklist", views.ChecklistItemViewSet, basename="resident-checklist"
+)
+resident_router.register(
+    r"pocket-money", views.PocketMoneyEntryViewSet, basename="resident-pocket-money"
 )
 
 # Dienste haengen immer an einem Dienstplan.
