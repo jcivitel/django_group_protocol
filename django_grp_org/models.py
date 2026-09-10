@@ -12,6 +12,7 @@ InnoDB kann dort keine Dateien umbenennen, wodurch jedes
 weiterhin. Laeuft die Datenbank auf einem Docker-Volume, kann das entfallen.
 """
 
+from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth.models import User
@@ -159,29 +160,97 @@ class Department(models.Model):
         return f"{self.facility.name} / {self.name}"
 
 
+# Die neun Rollen aus rollenkonzept.md, Abschnitt 3.2. Als Konstanten, weil
+# sie ausserhalb dieses Moduls gebraucht werden - die Rechtetabelle in
+# django_grp_backend/rechte.py schlaegt darueber nach.
+EXECUTIVE = "executive"
+FACILITY_LEAD = "facility_lead"
+GROUP_LEAD = "group_lead"
+DUTY_PLANNER = "duty_planner"
+SPECIALIST = "specialist"
+ASSISTANT = "assistant"
+CASE_LEAD = "case_lead"
+ADMINISTRATION = "administration"
+EXTERNAL_READER = "external_reader"
+
+# Die fuenf Geltungsbereiche, von aussen nach innen. Eine Rolle auf einer
+# Ebene wirkt auf alles darunter: Leitung einer Einrichtung ist damit auch
+# Leitung ihrer Bereiche, ohne dass das einzeln eingetragen wird.
+SCOPE_PROVIDER = "S1"
+SCOPE_SITE = "S2"
+SCOPE_FACILITY = "S3"
+SCOPE_DEPARTMENT = "S4"
+SCOPE_CASE_FILE = "S5"
+
+SCOPE_LABEL = {
+    SCOPE_PROVIDER: "Träger",
+    SCOPE_SITE: "Standort",
+    SCOPE_FACILITY: "Einrichtung",
+    SCOPE_DEPARTMENT: "Bereich",
+    SCOPE_CASE_FILE: "Fallakte",
+}
+
+
 class Role(models.Model):
     """
-    Rolle einer Person in der Organisation.
+    Rolle einer Person – und wo sie gilt.
 
-    Die Rolle gilt jeweils auf der Ebene, die gesetzt ist: nur Traeger =
-    traegerweit, mit Einrichtung = dort, mit Bereich = nur in diesem Bereich.
+    **Person · Rolle · Geltungsbereich · Zeitraum.** Eine Person hat beliebig
+    viele Zuweisungen. Die Gruppenleitung der 6a ist Leitung im Bereich
+    „Wohngruppe 6a" und Fachkraft in der 6b, in die sie gelegentlich
+    einspringt. Ein Springer ist Fachkraft in drei Bereichen, befristet auf
+    den Oktober.
 
-    Das ist die organisatorische Funktion - Grundlage fuer Stellenplan und
-    Fachkraftquote. Was jemand in der Software darf, steht dagegen in
-    Employee.access_level.
+    Der Geltungsbereich ist die innerste gesetzte Ebene: nur Träger =
+    trägerweit, mit Bereich = nur dort, mit Fallakte = nur für diesen Fall.
+    Eine Rolle wirkt immer auch nach unten.
+
+    Der Zeitraum ist kein Beiwerk. Er ist der Grund, warum ein befristeter
+    Zugang abläuft, statt vergessen zu werden.
+
+    Das Modell trug diese Achse schon, hat aber nichts gesteuert – im eigenen
+    Docstring stand: „Was jemand in der Software darf, steht dagegen in
+    Employee.access_level." Genau diese Trennung schliesst
+    `django_grp_backend/rechte.py`. Siehe rollenkonzept.md.
     """
 
     ROLE_CHOICES = [
-        ("management", "Leitung"),
-        ("specialist", "Fachkraft"),
-        ("assistant", "Ergänzungskraft"),
-        ("administration", "Verwaltung"),
-        ("youth_office", "Jugendamt (Lesezugriff)"),
+        (EXECUTIVE, "Geschäftsführung"),
+        (FACILITY_LEAD, "Einrichtungsleitung"),
+        (GROUP_LEAD, "Gruppenleitung"),
+        (DUTY_PLANNER, "Dienstplanung"),
+        (SPECIALIST, "Fachkraft"),
+        (ASSISTANT, "Ergänzungskraft"),
+        (CASE_LEAD, "Fallführung"),
+        (ADMINISTRATION, "Verwaltung"),
+        (EXTERNAL_READER, "Externe Lesekraft"),
     ]
+
+    # Auf welcher Ebene eine Rolle ueblicherweise haengt. Nur ein Vorschlag
+    # fuer die Oberflaeche - eintragen laesst sie sich, wo es passt.
+    USUAL_SCOPE = {
+        EXECUTIVE: SCOPE_PROVIDER,
+        FACILITY_LEAD: SCOPE_FACILITY,
+        GROUP_LEAD: SCOPE_DEPARTMENT,
+        DUTY_PLANNER: SCOPE_FACILITY,
+        SPECIALIST: SCOPE_DEPARTMENT,
+        ASSISTANT: SCOPE_DEPARTMENT,
+        CASE_LEAD: SCOPE_CASE_FILE,
+        ADMINISTRATION: SCOPE_PROVIDER,
+        EXTERNAL_READER: SCOPE_CASE_FILE,
+    }
 
     employee = fk("Employee", related_name="roles", verbose_name="Mitarbeitende")
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, verbose_name="Rolle")
     provider = fk(Provider, related_name="roles", verbose_name="Träger")
+    site = fk(
+        Site,
+        related_name="roles",
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        verbose_name="Standort",
+    )
     facility = fk(
         Facility,
         related_name="roles",
@@ -198,6 +267,22 @@ class Role(models.Model):
         on_delete=models.SET_NULL,
         verbose_name="Bereich",
     )
+    case_file = fk(
+        "django_grp_care.CaseFile",
+        related_name="roles",
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE,
+        verbose_name="Fallakte",
+        help_text="Nur für Fallführung und externe Lesekräfte",
+    )
+    note = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name="Anmerkung",
+        help_text="Wofür die Zuweisung gilt – bei externen Zugängen der Anlass",
+    )
     valid_from = models.DateField(verbose_name="Gültig ab")
     valid_to = models.DateField(blank=True, null=True, verbose_name="Gültig bis")
 
@@ -207,8 +292,45 @@ class Role(models.Model):
         verbose_name_plural = "Rollen"
 
     def __str__(self) -> str:
-        scope = self.department or self.facility or self.provider
-        return f"{self.employee} – {self.get_role_display()} ({scope})"
+        return f"{self.employee} – {self.get_role_display()} ({self.scope_label})"
+
+    @property
+    def scope_level(self) -> str:
+        """Die innerste gesetzte Ebene."""
+        if self.case_file_id:
+            return SCOPE_CASE_FILE
+        if self.department_id:
+            return SCOPE_DEPARTMENT
+        if self.facility_id:
+            return SCOPE_FACILITY
+        if self.site_id:
+            return SCOPE_SITE
+        return SCOPE_PROVIDER
+
+    @property
+    def scope_label(self) -> str:
+        """Wo die Rolle gilt, zum Anzeigen."""
+        ziel = (
+            self.case_file
+            or self.department
+            or self.facility
+            or self.site
+            or self.provider
+        )
+        return str(ziel)
+
+    def is_current(self, stichtag=None) -> bool:
+        """
+        Gilt die Zuweisung an diesem Tag?
+
+        Abgelaufene Zuweisungen bleiben stehen. Wer wann welche Rolle hatte,
+        ist bei einer Nachfrage die eigentliche Frage – eine geloeschte Zeile
+        beantwortet sie nicht.
+        """
+        tag = stichtag or date.today()
+        if self.valid_from and self.valid_from > tag:
+            return False
+        return not self.valid_to or self.valid_to >= tag
 
 
 # ============================================================ Phase 1

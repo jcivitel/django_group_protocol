@@ -272,6 +272,30 @@ LOGGING = {
 }
 
 # ============================================================================
+# Rechte: Zugriffsstufe oder Rollen
+# ============================================================================
+#
+# Der Umschalter aus rollenkonzept.md, Schritt 3. Drei Werte:
+#
+#   stufe      Employee.access_level entscheidet, wie bisher. Voreinstellung.
+#   vergleich  Die Stufe entscheidet, die Rollen rechnen mit. Weicht das
+#              Ergebnis ab, steht es als Warnung im Protokoll.
+#   rollen     Die Rollenzuweisungen entscheiden.
+#
+# Der Weg fuehrt ueber "vergleich": erst wenn eine Woche lang keine
+# Abweichung mehr auffaellt, wird scharf geschaltet. Wer sofort umschaltet,
+# erfaehrt von der ersten Luecke durch einen Anruf aus der Nachtschicht.
+RECHTE_QUELLE = config("RECHTE_QUELLE", default="stufe")
+
+if RECHTE_QUELLE not in ("stufe", "vergleich", "rollen"):
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        f"RECHTE_QUELLE ist '{RECHTE_QUELLE}' - erlaubt sind stufe, "
+        "vergleich und rollen."
+    )
+
+# ============================================================================
 # REST-Schnittstelle
 # ============================================================================
 #

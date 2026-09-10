@@ -6,6 +6,7 @@ Personaldaten sind sensibel: wer kein Personal ist, sieht von anderen nur
 Name und Qualifikation, nicht Vertrag oder Geburtsdatum.
 """
 
+from datetime import date
 from decimal import Decimal
 
 from rest_framework import serializers, status, viewsets
@@ -447,8 +448,19 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
 
 class RoleSerializer(serializers.ModelSerializer):
+    """
+    Person, Rolle, Geltungsbereich, Zeitraum.
+
+    `scope_level` und `scope_label` kommen gerechnet dazu: die Oberflaeche
+    soll zeigen koennen, WO eine Rolle gilt, ohne vier Fremdschluessel
+    aufzuloesen.
+    """
+
     role_display = serializers.CharField(source="get_role_display", read_only=True)
     employee_name = serializers.SerializerMethodField()
+    scope_level = serializers.CharField(read_only=True)
+    scope_label = serializers.CharField(read_only=True)
+    is_current = serializers.SerializerMethodField()
 
     class Meta:
         model = Role
@@ -459,14 +471,49 @@ class RoleSerializer(serializers.ModelSerializer):
             "role",
             "role_display",
             "provider",
+            "site",
             "facility",
             "department",
+            "case_file",
+            "scope_level",
+            "scope_label",
+            "note",
             "valid_from",
             "valid_to",
+            "is_current",
         ]
 
     def get_employee_name(self, obj):
         return obj.employee.get_full_name()
+
+    def get_is_current(self, obj) -> bool:
+        return obj.is_current()
+
+    def validate(self, attrs):
+        """
+        Eine Zuweisung haengt an genau einer Ebene.
+
+        Bereich UND Fallakte zugleich waere zweideutig - und eine Rechtezeile,
+        die man auf zwei Arten lesen kann, ist der Anfang einer Luecke.
+        """
+        gesetzt = [
+            feld
+            for feld in ("site", "facility", "department", "case_file")
+            if attrs.get(feld) is not None
+        ]
+        if len(gesetzt) > 1:
+            raise serializers.ValidationError(
+                "Bitte nur eine Ebene wählen: Standort, Einrichtung, Bereich "
+                "oder Fallakte."
+            )
+
+        von = attrs.get("valid_from")
+        bis = attrs.get("valid_to")
+        if von and bis and bis < von:
+            raise serializers.ValidationError(
+                {"valid_to": "Die Zuweisung endet vor ihrem Beginn."}
+            )
+        return attrs
 
 
 class PositionAssignmentSerializer(serializers.ModelSerializer):
@@ -727,10 +774,30 @@ class EmployeeQualificationViewSet(StaffWritableViewSet):
 
 
 class RoleViewSet(StaffWritableViewSet):
+    """
+    Rollenzuweisungen.
+
+    `?mitarbeitende=` filtert auf eine Person, `?aktuell=1` auf das, was
+    heute gilt. Abgelaufene Zuweisungen bleiben stehen: wer wann welche
+    Rolle hatte, ist bei einer Nachfrage die eigentliche Frage.
+    """
+
     serializer_class = RoleSerializer
     queryset = Role.objects.select_related(
-        "employee", "provider", "facility", "department"
+        "employee", "provider", "site", "facility", "department", "case_file"
     )
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        mitarbeitende = self.request.query_params.get("mitarbeitende")
+        if mitarbeitende:
+            queryset = queryset.filter(employee_id=mitarbeitende)
+        if self.request.query_params.get("aktuell"):
+            heute = date.today()
+            queryset = queryset.filter(valid_from__lte=heute).filter(
+                Q(valid_to__isnull=True) | Q(valid_to__gte=heute)
+            )
+        return queryset
 
 
 class PositionViewSet(StaffWritableViewSet):
