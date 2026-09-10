@@ -6,6 +6,9 @@ deshalb nur Personal oder wer Mitglied der Gruppe ist, in der die Person
 lebt - dieselbe Regel wie bei Protokollen und Bewohnern.
 """
 
+from datetime import date
+
+from django.conf import settings
 from django.db.models import Q
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import PermissionDenied
@@ -14,7 +17,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from django_grp_backend.access import WriteNeedsRole
+from django_grp_backend.rechte import generalschluessel
 from django_grp_backend.models import ProtocolObservation
+from django_grp_org.models import Role
 from django_grp_org.tenancy import limit_to_tenant
 
 from .models import (
@@ -28,13 +33,44 @@ from .models import (
 
 
 def accessible_case_files(user):
-    """Fallakten, die diese Person sehen darf."""
+    """
+    Fallakten, die diese Person sehen darf.
+
+    Drei Wege hinein, in dieser Reihenfolge:
+
+    1. Der Generalschluessel (Superuser, `is_staff`) sieht alles.
+    2. Unter `RECHTE_QUELLE=rollen` zusaetzlich: wer eine Rolle auf genau
+       dieser Akte hat - Fallfuehrung oder externe Lesekraft. Das ist der
+       Punkt, an dem ein Jugendamt einen einzelnen Fall einsehen kann, ohne
+       Mitglied der Gruppe zu sein.
+    3. Sonst wie bisher: Mitglied der Gruppe, in der die Person lebt.
+
+    Der dritte Weg ist der grosszuegigste und derjenige, den das Rollenmodell
+    spaeter enger fasst - heute sieht jedes Gruppenmitglied jede Akte seiner
+    Gruppe.
+    """
     queryset = limit_to_tenant(
         CaseFile.objects.select_related("resident", "responsible"), user
     )
-    if user.is_staff:
+    if generalschluessel(user):
         return queryset
-    return queryset.filter(resident__group__group_members=user).distinct()
+
+    ueber_gruppe = Q(resident__group__group_members=user)
+
+    if getattr(settings, "RECHTE_QUELLE", "stufe") == "rollen":
+        heute = date.today()
+        ueber_rolle = (
+            Role.objects.filter(
+                employee__user=user,
+                case_file__isnull=False,
+                valid_from__lte=heute,
+            )
+            .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=heute))
+            .values_list("case_file_id", flat=True)
+        )
+        return queryset.filter(ueber_gruppe | Q(id__in=ueber_rolle)).distinct()
+
+    return queryset.filter(ueber_gruppe).distinct()
 
 
 class CaseScopedMixin:
@@ -46,7 +82,18 @@ class CaseScopedMixin:
         return accessible_case_files(self.request.user).values_list("id", flat=True)
 
     def guard_case(self, case_file_id):
-        if case_file_id not in set(self.visible_case_ids()):
+        """
+        Eine Abfrage statt einer Menge.
+
+        Vorher lud jede Pruefung saemtliche sichtbaren Fallakten in den
+        Speicher, um eine einzige Nummer darin zu suchen. Bei siebzehn
+        Aufrufstellen und einem Traeger mit ein paar hundert laufenden Hilfen
+        ist das jedes Mal eine volle Tabelle fuer eine Ja-Nein-Frage.
+        """
+        if case_file_id is None:
+            raise PermissionDenied("Kein Zugriff auf diese Fallakte.")
+        sichtbar = accessible_case_files(self.request.user).filter(id=case_file_id)
+        if not sichtbar.exists():
             raise PermissionDenied("Kein Zugriff auf diese Fallakte.")
 
 

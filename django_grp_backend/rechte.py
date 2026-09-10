@@ -384,9 +384,29 @@ def _rolle_deckt(rolle, ebenen) -> bool:
 # ------------------------------------------------------------------ Die Antwort
 
 
+def generalschluessel(user) -> bool:
+    """
+    Konten, die immer alles dürfen.
+
+    Superuser und `is_staff`. Bewusst nicht abschaffbar: eine Rechteumstellung
+    darf niemanden aussperren, der die Anlage betreut, und wer als
+    Mitarbeitendes Konto gefuehrt wird, traegt ohnehin die Verantwortung fuer
+    das Ganze.
+
+    Praktisch ist das auch der Notausgang. Wer den Schalter auf `rollen`
+    stellt und dabei eine Zuweisung vergisst, kommt ueber ein solches Konto
+    wieder hinein - ohne Datenbankzugriff.
+    """
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    return bool(
+        getattr(user, "is_superuser", False) or getattr(user, "is_staff", False)
+    )
+
+
 def _aus_stufe(user, aktion, noetig) -> bool:
     """Wie bisher: eine Stufe, die für die ganze Anwendung gilt."""
-    if getattr(user, "is_superuser", False):
+    if generalschluessel(user):
         return True
     stufe = access_level(user)
     if stufe is None:
@@ -396,7 +416,7 @@ def _aus_stufe(user, aktion, noetig) -> bool:
 
 def _aus_rollen(user, aktion, noetig, objekt) -> bool:
     """Aus den Rollenzuweisungen, die heute gelten."""
-    if getattr(user, "is_superuser", False):
+    if generalschluessel(user):
         return True
 
     employee = employee_of(user)
@@ -449,6 +469,27 @@ def darf(user, aktion: str, objekt=None, *, schreiben: bool = False) -> bool:
             )
 
     return antwort
+
+
+def verwaltet(user) -> bool:
+    """
+    Darf diese Person die Anlage verwalten?
+
+    Die Frage, die bisher `is_admin()` hiess und an gut zwanzig Stellen
+    gestellt wird: Stammdaten aendern, Personal fuehren, Systemeinstellungen.
+    Sie haengt an derselben Zeile der Matrix wie die Traegerstruktur.
+    """
+    return darf(user, ORG_STRUKTUR, schreiben=True)
+
+
+def schreibt_dokumentation(user, objekt=None) -> bool:
+    """
+    Darf diese Person fachlich dokumentieren?
+
+    Die Frage hinter `WriteNeedsRole`: Protokolle, Bewohner, Fallakte. Eine
+    Ergaenzungskraft darf das nicht, eine Fachkraft schon.
+    """
+    return darf(user, PROTOKOLLE, objekt, schreiben=True)
 
 
 def rollen_von(user, stichtag=None) -> list:

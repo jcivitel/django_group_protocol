@@ -256,6 +256,14 @@ urlpatterns = [
         name="employee-picture",
     ),
     path(
+        # Erwaehnungen sucht die Datenbank, nicht das Frontend. Steht als
+        # eigener Pfad und nicht im verschachtelten Router: es ist keine
+        # Sammlung, sondern eine Frage.
+        "v1/resident/<int:resident_id>/mentions/",
+        views.ResidentMentionsView.as_view(),
+        name="resident-mentions",
+    ),
+    path(
         "v1/group/<int:group_id>/pdf_template/",
         GroupPDFTemplateView.as_view(),
         name="group-pdf-template",

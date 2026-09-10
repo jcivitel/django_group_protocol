@@ -15,6 +15,15 @@ Jetzt gibt es drei Stufen, und sie stehen genau hier:
 Die Stufe steht an Employee.access_level. Dieses Modul kommt ohne Import
 von django_grp_org aus - es folgt der Rueckbeziehung `user.employee` und
 vermeidet damit einen Ringschluss zwischen den beiden Apps.
+
+**Seit dem Rollenmodell fragen `is_admin`, `may_write` und `may_read_only`
+nicht mehr selbst die Stufe ab, sondern `rechte.darf()`.** Damit laufen alle
+Rechtefragen der Anwendung durch eine Stelle, ohne dass zweiunddreissig
+Aufrufer angefasst werden mussten. Wer `RECHTE_QUELLE` umstellt, stellt
+damit die ganze Anwendung um - und nicht die Haelfte davon.
+
+Die drei Namen bleiben, weil sie an den Aufrufstellen lesbar sind. Was
+dahinter entscheidet, steht in `rechte.py`.
 """
 
 ADMIN = "admin"
@@ -58,20 +67,33 @@ def access_level(user) -> str | None:
 
 
 def is_admin(user) -> bool:
-    """Sieht und verwaltet alles - unabhaengig von Gruppenzugehoerigkeit."""
-    if user is not None and getattr(user, "is_superuser", False):
-        return True
-    return access_level(user) == ADMIN
+    """
+    Sieht und verwaltet alles - unabhaengig von Gruppenzugehoerigkeit.
+
+    Der Import steht in der Funktion und nicht oben: `rechte` liest aus
+    diesem Modul, und ein Ringschluss beim Laden waere der Preis fuer eine
+    Zeile Ordnung.
+    """
+    from .rechte import verwaltet
+
+    return verwaltet(user)
 
 
-def may_write(user) -> bool:
-    """Darf in den Gruppen schreiben, in denen die Person Mitglied ist."""
-    return access_level(user) in (ADMIN, SPECIALIST)
+def may_write(user, objekt=None) -> bool:
+    """
+    Darf fachlich dokumentieren - Protokolle, Bewohner, Fallakte.
+
+    `objekt` ist neu und optional. Ohne es entscheidet allein die Rolle; mit
+    ihm auch, WO sie gilt. Die Aufrufer reichen es nach und nach durch.
+    """
+    from .rechte import schreibt_dokumentation
+
+    return schreibt_dokumentation(user, objekt)
 
 
 def may_read_only(user) -> bool:
     """Aushilfe oder Azubi: sieht die eigenen Gruppen, aendert nichts."""
-    return access_level(user) == ASSISTANT
+    return not may_write(user)
 
 
 class WriteNeedsRole:
@@ -91,10 +113,19 @@ class WriteNeedsRole:
     def has_permission(self, request, view):
         if request.method in self.SAFE:
             return True
-        return not may_read_only(request.user)
+        return may_write(request.user)
 
     def has_object_permission(self, request, view, obj):
-        return self.has_permission(request, view)
+        """
+        Dieselbe Frage, jetzt mit dem Gegenstand in der Hand.
+
+        Unter `RECHTE_QUELLE=stufe` aendert das nichts - die Stufe kennt
+        keinen Geltungsbereich. Unter `rollen` ist es der Unterschied
+        zwischen "darf dokumentieren" und "darf hier dokumentieren".
+        """
+        if request.method in self.SAFE:
+            return True
+        return may_write(request.user, obj)
 
     @property
     def message(self):

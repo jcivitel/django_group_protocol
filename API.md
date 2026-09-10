@@ -328,6 +328,25 @@ stehen im Rumpf der Anfrage, und das ViewSet filtert nur, was es herausgibt.
 Die Meldung selbst entsteht im Frontend als PDF unter
 `/api/vorkommnisse/{id}/meldung`.
 
+### Erwähnungen einer Person
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/resident/{id}/mentions/` | GET | Erwähnungen in den Protokollen der Gruppe |
+
+Sucht nach `@Vorname_Nachname` — dem Wortlaut, den der Erwähnungsknopf im
+Protokoll einsetzt. Groß- und Kleinschreibung spielt keine Rolle; der Name
+ohne `@` ist kein Treffer, sonst fände die Suche jedes Protokoll.
+
+Antwort je Treffer: `protocolId`, `protocolDate`, `itemName`, `excerpt` (der
+Satz um die Erwähnung, nicht der ganze Tagesordnungspunkt). Höchstens 60
+Treffer, jüngste zuerst.
+
+Den Endpunkt gibt es, seit das Frontend die Suche nicht mehr selbst macht:
+vorher holte es die Protokollliste und danach die jüngsten fünfzehn
+Protokolle einzeln — sechzehn Anfragen für eine Liste, die die Datenbank in
+einer beantwortet.
+
 ### Schule an der Bewohnerakte
 
 `Resident` trägt zusätzlich `school`, `school_class` und `school_contact`.

@@ -863,6 +863,77 @@ class MentionAutocompleteView(APIView):
         return Response(data, status=status.HTTP_200_OK)
 
 
+class ResidentMentionsView(APIView):
+    """
+    Erwaehnungen einer Person in den Protokollen ihrer Gruppe.
+
+    /api/v1/resident/{id}/mentions/
+
+    **Warum es diesen Endpunkt gibt.** Vorher suchte das Frontend selbst:
+    erst die Protokollliste, dann die juengsten fuenfzehn Protokolle
+    einzeln, dann in jedem Punkt nach dem Wortlaut. Sechzehn Anfragen fuer
+    eine Liste, die die Datenbank in einer beantwortet - und die Grenze von
+    fuenfzehn war nicht fachlich begruendet, sondern eine Notbremse gegen
+    die eigene Bauart.
+
+    Gesucht wird nach `@Vorname_Nachname`, wie es der Erwaehnungsknopf im
+    Protokoll einsetzt. Gross- und Kleinschreibung spielt keine Rolle.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    # So viele Treffer kommen hoechstens zurueck. Eine Akte, die seit drei
+    # Jahren laeuft, haette sonst Hunderte - und niemand liest sie.
+    GRENZE = 60
+    AUSSCHNITT = 180
+
+    def get(self, request, resident_id):
+        resident = (
+            Resident.objects.for_user(request.user).filter(id=resident_id).first()
+        )
+        if resident is None:
+            raise NotFound("Bewohner nicht gefunden.")
+
+        wort = f"@{resident.first_name}_{resident.last_name}"
+
+        treffer = (
+            ProtocolItem.objects.filter(
+                protocol__group=resident.group,
+                value__icontains=wort,
+            )
+            .select_related("protocol")
+            .order_by("-protocol__protocol_date", "-protocol_id", "position")[
+                : self.GRENZE
+            ]
+        )
+
+        return Response(
+            [
+                {
+                    "protocolId": eintrag.protocol_id,
+                    "protocolDate": eintrag.protocol.protocol_date,
+                    "itemName": eintrag.name,
+                    "excerpt": self._ausschnitt(eintrag.value or "", wort),
+                }
+                for eintrag in treffer
+            ]
+        )
+
+    def _ausschnitt(self, text: str, wort: str) -> str:
+        """Der Satz um die Erwaehnung, nicht der ganze Tagesordnungspunkt."""
+        stelle = text.lower().find(wort.lower())
+        if stelle == -1:
+            return text[: self.AUSSCHNITT]
+
+        halb = self.AUSSCHNITT // 2
+        von = max(0, stelle - halb)
+        bis = min(len(text), stelle + len(wort) + halb)
+        kern = " ".join(text[von:bis].split())
+        return (
+            f"{'… ' if von > 0 else ''}{kern}{' …' if bis < len(text) else ''}"
+        )
+
+
 class RotateImageView(APIView):
     """
     Bewohnerfoto drehen.
