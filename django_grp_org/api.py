@@ -25,6 +25,9 @@ from .holiday_service import jahr_anlegen
 from .holidays import BUNDESLAENDER
 from .tenancy import limit_to_tenant, tenant_providers
 from .models import (
+    PayGrade,
+    PayGradeStep,
+    SurchargeRate,
     Contract,
     Department,
     Employee,
@@ -146,6 +149,45 @@ class QualificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Qualification
         fields = ["id", "name", "is_specialist", "description"]
+
+
+class PayGradeStepSerializer(serializers.ModelSerializer):
+    """Eine Stufe mit Betrag, gueltig ab einem Datum."""
+
+    class Meta:
+        model = PayGradeStep
+        fields = ["id", "pay_grade", "step", "monthly_amount", "valid_from"]
+
+
+class PayGradeSerializer(serializers.ModelSerializer):
+    """
+    Eine Entgeltgruppe mit ihren Stufen.
+
+    Die Stufen kommen mit, weil eine Gruppe ohne sie nichts aussagt - und es
+    sind selten mehr als sechs.
+    """
+
+    steps = PayGradeStepSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = PayGrade
+        fields = [
+            "id",
+            "provider",
+            "name",
+            "description",
+            "position",
+            "is_active",
+            "steps",
+        ]
+
+
+class SurchargeRateSerializer(serializers.ModelSerializer):
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+
+    class Meta:
+        model = SurchargeRate
+        fields = ["id", "provider", "kind", "kind_display", "percent", "note"]
 
 
 class WorkTimeModelSerializer(serializers.ModelSerializer):
@@ -606,6 +648,44 @@ class HolidayGenerateView(APIView):
             mit_halben_tagen=bool(request.data.get("with_half_days", True)),
         )
         return Response(bericht)
+
+
+class PayGradeViewSet(StaffWritableViewSet):
+    """
+    Entgeltgruppen des Traegers.
+
+    Die Namen kommen ab Werk, die Betraege nicht - eine Entgelttabelle gilt
+    ein Jahr. Siehe `django_grp_org/entgelt.py`.
+    """
+
+    serializer_class = PayGradeSerializer
+
+    def get_queryset(self):
+        return limit_to_tenant(
+            PayGrade.objects.prefetch_related("steps"), self.request.user
+        )
+
+
+class PayGradeStepViewSet(StaffWritableViewSet):
+    """Stufen mit Betrag. Je Tarifrunde kommt eine Zeile dazu."""
+
+    serializer_class = PayGradeStepSerializer
+
+    def get_queryset(self):
+        return limit_to_tenant(
+            PayGradeStep.objects.select_related("pay_grade"),
+            self.request.user,
+            "pay_grade__provider_id",
+        )
+
+
+class SurchargeRateViewSet(StaffWritableViewSet):
+    """Zuschlagssaetze. Ohne Satz bleibt es bei den Stunden."""
+
+    serializer_class = SurchargeRateSerializer
+
+    def get_queryset(self):
+        return limit_to_tenant(SurchargeRate.objects.all(), self.request.user)
 
 
 class WorkTimeModelViewSet(StaffWritableViewSet):

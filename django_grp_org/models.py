@@ -51,6 +51,17 @@ class Provider(models.Model):
     postalcode = models.CharField(max_length=10, blank=True, default="")
     city = models.CharField(max_length=100, blank=True, default="")
     is_active = models.BooleanField(default=True, verbose_name="Aktiv")
+    # Aus dem Monatsentgelt wird ein Stundenentgelt, und dafuer braucht es
+    # die Zahl der Monatsstunden. Der TVoeD rechnet mit dem 4,348-fachen der
+    # Wochenstunden (52 Wochen auf zwoelf Monate). Andere Tarifwerke rechnen
+    # anders - deshalb steht die Zahl hier und nicht im Code.
+    monthly_hours_factor = models.DecimalField(
+        max_digits=5,
+        decimal_places=3,
+        default=Decimal("4.348"),
+        verbose_name="Monatsfaktor",
+        help_text="Wochenstunden mal diesem Faktor ergeben die Monatsstunden",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -458,6 +469,24 @@ class Contract(models.Model):
     weekly_hours = models.DecimalField(
         max_digits=5, decimal_places=2, verbose_name="Wochenstunden"
     )
+    pay_grade_ref = models.ForeignKey(
+        "django_grp_org.PayGrade",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="contracts",
+        verbose_name="Entgeltgruppe",
+        help_text="Aus den Stammdaten des Trägers",
+    )
+    pay_step = models.PositiveSmallIntegerField(
+        blank=True,
+        null=True,
+        verbose_name="Stufe",
+        help_text="Leer, wenn die Stufe nicht geführt wird",
+    )
+    # Der frueher freie Text. Er bleibt als Rueckfall stehen, statt bei der
+    # Migration weggeworfen zu werden: was jemand dort eingetragen hat, ist
+    # eine Angabe - auch wenn sie sich keiner Gruppe zuordnen liess.
     pay_grade = models.CharField(
         max_length=40,
         blank=True,
@@ -584,6 +613,14 @@ def sync_staff_flag(sender, instance, **kwargs):
     user.is_staff = wanted
     user.save(update_fields=["is_staff"])
 
+
+# Entgeltgruppen, Stufen und Zuschlagssaetze. Am Ende, weil sie Provider
+# und fk() von hier brauchen.
+from .entgelt import (  # noqa: E402,F401
+    PayGrade,
+    PayGradeStep,
+    SurchargeRate,
+)
 
 # Änderungsprotokoll und die zugehörigen Signale werden hier eingehängt,
 # damit Django beides beim Laden der App registriert.
