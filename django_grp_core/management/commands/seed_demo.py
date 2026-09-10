@@ -20,7 +20,7 @@ Konten mit bekanntem Passwort hinterlässt, ist eine offene Tür.
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from django.contrib.auth.models import User
@@ -160,17 +160,21 @@ TEAM = [
     ),
 ]
 
-# (Vorname, Nachname, Gruppe, eingezogen vor Tagen)
+# (Vorname, Nachname, Gruppe, eingezogen vor Tagen, Alter, Geschlecht)
+#
+# Alter und Geschlecht braucht die amtliche Statistik nach § 99 SGB VIII.
+# Eine Person bleibt ohne beides - "ohne Angabe" ist dort eine zulaessige
+# Auspraegung, und die Bildschirmfotos sollen zeigen, wie das aussieht.
 BEWOHNER = [
-    ("Nele", "Brandhorst", 0, 420),
-    ("Yusuf", "Kaya", 0, 260),
-    ("Lina", "Wegener", 0, 180),
-    ("Tim", "Ostermann", 0, 95),
-    ("Amira", "Nasser", 0, 40),
-    ("Jonas", "Kirchhoff", 1, 610),
-    ("Mia", "Sonntag", 1, 300),
-    ("Elias", "Bertram", 1, 150),
-    ("Sophie", "Lindqvist", 1, 70),
+    ("Nele", "Brandhorst", 0, 420, 14, "female"),
+    ("Yusuf", "Kaya", 0, 260, 16, "male"),
+    ("Lina", "Wegener", 0, 180, 13, "female"),
+    ("Tim", "Ostermann", 0, 95, 15, "male"),
+    ("Amira", "Nasser", 0, 40, 12, "female"),
+    ("Jonas", "Kirchhoff", 1, 610, 17, "male"),
+    ("Mia", "Sonntag", 1, 300, 15, "female"),
+    ("Elias", "Bertram", 1, 150, 14, "diverse"),
+    ("Sophie", "Lindqvist", 1, 70, 16, ""),
 ]
 
 # Kontakte für die ersten vier - mehr braucht kein Bildschirmfoto, und jede
@@ -473,13 +477,24 @@ class Command(BaseCommand):
 
     def _bewohner(self, gruppen):
         bewohner = []
-        for vorname, nachname, index, seit in BEWOHNER:
+        for vorname, nachname, index, seit, alter, geschlecht in BEWOHNER:
             person, _ = Resident.objects.get_or_create(
                 first_name=vorname,
                 last_name=nachname,
                 group=gruppen[index],
                 defaults={"moved_in_since": self.heute - timedelta(days=seit)},
             )
+            # Ein Geburtstag mitten im Jahr, damit das gerechnete Alter nicht
+            # am Stichtag kippt, waehrend jemand die Bilder ansieht.
+            felder = []
+            if person.birth_date is None and alter:
+                person.birth_date = date(self.heute.year - alter, 6, 15)
+                felder.append("birth_date")
+            if not person.gender and geschlecht:
+                person.gender = geschlecht
+                felder.append("gender")
+            if felder:
+                person.save(update_fields=felder)
             bewohner.append(person)
         self.stdout.write(f"  Bewohner: {len(bewohner)}")
         return bewohner

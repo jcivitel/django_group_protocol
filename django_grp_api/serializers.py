@@ -190,6 +190,10 @@ class ResidentSerializer(EigeneGruppeMixin, serializers.ModelSerializer):
     # Vielfaches an Daten fuer eine Angabe, die man nur ueberfliegt.
     critical_allergies = serializers.SerializerMethodField()
     allergy_count = serializers.SerializerMethodField()
+    gender_display = serializers.CharField(source="get_gender_display", read_only=True)
+    # Gerechnet und nicht gespeichert - ein Alter altert, waehrend niemand
+    # hinsieht.
+    age = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Resident
@@ -197,6 +201,10 @@ class ResidentSerializer(EigeneGruppeMixin, serializers.ModelSerializer):
             "id",
             "first_name",
             "last_name",
+            "birth_date",
+            "gender",
+            "gender_display",
+            "age",
             "moved_in_since",
             "moved_out_since",
             "group",

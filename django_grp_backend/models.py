@@ -11,6 +11,7 @@ from django.utils.deconstruct import deconstructible
 from django_grp_backend.access import is_admin
 from django_grp_backend.bilder import einplanen
 from django_grp_backend.functions import validate_image
+from datetime import date
 
 # db_constraint=False ist entfallen.
 #
@@ -235,8 +236,31 @@ class RandomizedFileName:
 
 
 class Resident(models.Model):
+    # Geschlecht nach den Kategorien der amtlichen Kinder- und Jugendhilfe-
+    # statistik (§ 99 SGB VIII). Leer heisst "ohne Angabe" und ist dort eine
+    # eigene, zulaessige Auspraegung - deshalb kein Zwang und keine Vorgabe.
+    GENDER_CHOICES = [
+        ("female", "Weiblich"),
+        ("male", "Männlich"),
+        ("diverse", "Divers"),
+    ]
+
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
+    birth_date = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name="Geburtsdatum",
+        help_text="Grundlage des Alters in der amtlichen Statistik",
+    )
+    gender = models.CharField(
+        max_length=10,
+        choices=GENDER_CHOICES,
+        blank=True,
+        default="",
+        verbose_name="Geschlecht",
+        help_text="Leer lassen, wenn keine Angabe vorliegt",
+    )
     picture = models.ImageField(
         blank=True,
         null=True,
@@ -274,6 +298,24 @@ class Resident(models.Model):
 
     def __str__(self):
         return self.get_full_name()
+
+
+    @property
+    def age(self) -> int | None:
+        """
+        Alter in vollen Jahren, oder None ohne Geburtsdatum.
+
+        Gerechnet und nicht gespeichert: ein Alter altert, waehrend niemand
+        hinsieht.
+        """
+        if not self.birth_date:
+            return None
+        heute = date.today()
+        jahre = heute.year - self.birth_date.year
+        # Noch nicht Geburtstag gehabt? Dann ein Jahr weniger.
+        if (heute.month, heute.day) < (self.birth_date.month, self.birth_date.day):
+            jahre -= 1
+        return jahre
 
 
 class ResidentContact(models.Model):

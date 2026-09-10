@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 from django_grp_backend.models import Group, Resident, Protocol, ProtocolItem, ProtocolPresence
-from datetime import date
+from datetime import date, timedelta
 
 
 def eintraege(antwort):
@@ -883,3 +883,73 @@ class EinwilligungTestCase(APITestCase):
         liste = self.client.get(f"/api/v1/resident/{self.kind.id}/consent/")
         self.assertEqual(len(eintraege(liste)), 1)
         self.assertEqual(eintraege(liste)[0]["status"], "revoked")
+
+
+class BewohnerStatistikfelderTestCase(APITestCase):
+    """
+    Geburtsdatum und Geschlecht - die zwei Felder, an denen die amtliche
+    Statistik nach § 99 SGB VIII bisher haengen blieb.
+
+    Beide sind freiwillig. "Ohne Angabe" ist bei der Statistik eine zulaessige
+    Auspraegung, und ein Pflichtfeld haette nur dazu gefuehrt, dass jemand
+    etwas hineinschreibt, was er nicht weiss.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.fachkraft = User.objects.create_user(
+            username="fach", password="testpass123"
+        )
+        self.gruppe = Group.objects.create(
+            name="Wohngruppe", address="A", postalcode="11111", city="Hier"
+        )
+        self.gruppe.group_members.add(self.fachkraft)
+        self.client.force_authenticate(user=self.fachkraft)
+
+    def anlegen(self, **felder):
+        daten = {
+            "first_name": "Nele",
+            "last_name": "Beispiel",
+            "group": self.gruppe.id,
+            "moved_in_since": "2024-01-01",
+        }
+        daten.update(felder)
+        return self.client.post("/api/v1/resident/", daten, format="json")
+
+    def test_ohne_angabe_geht(self):
+        antwort = self.anlegen()
+        self.assertEqual(antwort.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(antwort.data["birth_date"])
+        self.assertEqual(antwort.data["gender"], "")
+        self.assertIsNone(antwort.data["age"])
+
+    def test_mit_angabe(self):
+        antwort = self.anlegen(birth_date="2010-06-15", gender="female")
+        self.assertEqual(antwort.data["gender_display"], "Weiblich")
+        self.assertIsNotNone(antwort.data["age"])
+
+    def test_alter_zaehlt_den_geburtstag_mit(self):
+        """
+        Wer heute Geburtstag hat, ist heute ein Jahr aelter - nicht morgen.
+        Die Grenze ist die Stelle, an der eine Altersrechnung schiefgeht.
+        """
+        heute = date.today()
+        kind = Resident.objects.create(
+            first_name="Heute",
+            last_name="Geburtstag",
+            group=self.gruppe,
+            moved_in_since=date(2024, 1, 1),
+            birth_date=date(heute.year - 12, heute.month, heute.day),
+        )
+        self.assertEqual(kind.age, 12)
+
+        morgen = heute + timedelta(days=1)
+        spaeter = Resident.objects.create(
+            first_name="Morgen",
+            last_name="Geburtstag",
+            group=self.gruppe,
+            moved_in_since=date(2024, 1, 1),
+            birth_date=date(morgen.year - 12, morgen.month, morgen.day),
+        )
+        # Einen Tag vor dem Geburtstag ist die Person noch elf.
+        self.assertEqual(spaeter.age, 11)
