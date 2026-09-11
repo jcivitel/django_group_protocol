@@ -998,7 +998,27 @@ class AuditEventViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(
                 Q(label__icontains=suche) | Q(username__icontains=suche)
             )
-        return queryset[:500]
+        return queryset[: self._grenze()]
+
+    # Wie viele Zeilen hoechstens herauskommen. Die Tabelle waechst mit jedem
+    # Arbeitstag und wird nie geleert - ohne Grenze holt die Oberflaeche
+    # irgendwann Jahre auf einmal.
+    STANDARD_GRENZE = 200
+    HOECHSTE_GRENZE = 2000
+
+    def _grenze(self) -> int:
+        # Die Grenze aus der Anfrage, gedeckelt. Der Deckel ist kein
+        # Misstrauen gegen die eigene Oberflaeche, sondern gegen den Fall, den
+        # niemand vorhersieht: ein Skript, das `grenze` auf eine Million
+        # setzt, und eine Datenbank, die es versucht.
+        roh = self.request.query_params.get("grenze")
+        if not roh:
+            return self.STANDARD_GRENZE
+        try:
+            gewuenscht = int(roh)
+        except (TypeError, ValueError):
+            return self.STANDARD_GRENZE
+        return max(1, min(gewuenscht, self.HOECHSTE_GRENZE))
 
     @action(detail=False, methods=["get"], url_path="arten")
     def arten(self, request):
