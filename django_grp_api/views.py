@@ -20,6 +20,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from .guards import ProtokollGesperrt, protokoll_fuer, schreibbares_protokoll
 from django_grp_backend.access import WriteNeedsRole, is_admin, may_read_only
 from django_grp_backend.functions import upload_too_large
+from django_grp_backend.models import medikationsuebersicht
 from django_grp_backend.suche import suchen
 from django_grp_backend.models import (
     ChecklistItem,
@@ -827,6 +828,20 @@ class ItemValuesUpdateView(APIView):
             felder["kind"] = geschickt.get("kind")
         if "data" in geschickt:
             felder["data"] = geschickt.get("data")
+
+        # Eine Medikationsuebersicht schreibt der Server, nicht der Browser.
+        #
+        # Sie ist eine Momentaufnahme des Plans dieser Gruppe, und sie
+        # entsteht genau einmal: beim Anlegen des Punktes. Wer sie im
+        # Browser fuellen liesse, haette zwei Wahrheiten - die Akte und
+        # eine abgetippte Fassung daneben - und die Schicht, die nach dem
+        # Protokoll arbeitet, haette womoeglich die falsche.
+        #
+        # Beim Aendern wird sie nicht neu geholt: ein Protokoll ist ein
+        # Nachweis, und im Protokoll vom Maerz darf nicht die Lage vom
+        # September stehen.
+        if felder.get("kind") == "medication" and not felder.get("data"):
+            felder["data"] = medikationsuebersicht(protocol.group)
 
         if item_id:
             # Das Paar aus Eintrag UND Protokoll - hier lag die Luecke.

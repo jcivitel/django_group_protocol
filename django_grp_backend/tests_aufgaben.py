@@ -256,3 +256,34 @@ class TagesprotokollVorlageTestCase(APITestCase):
         )
         punkt = protokoll.items.get(kind="medication")
         self.assertEqual(punkt.data["rows"][0][1], "Methylphenidat")
+
+
+class MedikationReihenfolgeTestCase(APITestCase):
+    """
+    Medikation steht vor "Gruppe und einzelne Bewohner".
+
+    Keine Kosmetik: erst sieht das Team, was gegeben wird, dann redet es
+    ueber die Kinder. Andersherum ist die Medikation der Anhang, den man
+    liest, wenn die Zeit reicht.
+    """
+
+    def test_in_der_teambesprechung(self):
+        vorlage = ProtocolTemplate.objects.get(
+            name="Teambesprechung", group__isnull=True
+        )
+        namen = list(
+            vorlage.items.order_by("position").values_list("name", flat=True)
+        )
+        self.assertLess(namen.index("Medikation"), namen.index("Gruppe und einzelne Bewohner"))
+
+    def test_positionen_sind_luecklos(self):
+        """
+        Der Fehler aus 0036 war ein Verschieben waehrend der Abfrage. Ein
+        Loch oder eine doppelte Position faellt sonst niemandem auf.
+        """
+        for name in ("Teambesprechung", "Tagesprotokoll"):
+            vorlage = ProtocolTemplate.objects.get(name=name, group__isnull=True)
+            plaetze = list(
+                vorlage.items.order_by("position").values_list("position", flat=True)
+            )
+            self.assertEqual(plaetze, list(range(len(plaetze))), name)
