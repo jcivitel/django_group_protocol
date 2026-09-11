@@ -59,9 +59,16 @@ class ProtocolItemSerializer(serializers.ModelSerializer):
 
 
 class ProtocolTodoSerializer(serializers.ModelSerializer):
-    """Serializer for ProtocolTodo model."""
+    """
+    Eine Aufgabe aus einem Protokoll.
+
+    `done_by` kommt aus der Anmeldung und nicht aus dem Formular: wer
+    abgehakt hat, gehoert zur Dokumentation und nicht in ein freies Feld.
+    """
 
     protocol = serializers.IntegerField(source="protocol.id", read_only=True)
+    is_done = serializers.BooleanField(read_only=True)
+    is_overdue = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = ProtocolTodo
@@ -71,11 +78,21 @@ class ProtocolTodoSerializer(serializers.ModelSerializer):
             "what",
             "who",
             "when",
+            "done_at",
+            "done_by",
+            "is_done",
+            "is_overdue",
             "position",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "protocol"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "protocol",
+            "done_by",
+        ]
 
 
 class ProtocolSerializer(EigeneGruppeMixin, serializers.ModelSerializer):

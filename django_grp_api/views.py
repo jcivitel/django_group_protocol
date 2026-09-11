@@ -577,10 +577,27 @@ class ProtocolTodoViewSet(ProtocolScopedViewSet):
     Aufgaben eines Protokolls.
 
     /api/v1/protocol/{protocol_id}/todo/
+
+    Abhaken laeuft ueber PATCH mit `done_at`. Wer abgehakt hat, setzt der
+    Server aus der Anmeldung - das gehoert zur Dokumentation und nicht in
+    ein Feld, das jeder frei ausfuellt.
     """
 
     serializer_class = ProtocolTodoSerializer
     model = ProtocolTodo
+
+    def perform_update(self, serializer):
+        benutzer = self.request.user
+        erledigt = serializer.validated_data.get(
+            "done_at", serializer.instance.done_at
+        )
+        if erledigt is None:
+            # Wieder geoeffnet: dann soll auch kein Name mehr danebenstehen.
+            serializer.save(done_by="")
+        else:
+            serializer.save(
+                done_by=(benutzer.get_full_name() or benutzer.username)
+            )
 
 
 class TodoCollectionView(APIView):

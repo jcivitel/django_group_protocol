@@ -6,6 +6,7 @@ from django.contrib.auth.models import User
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils import timezone
 from django.utils.deconstruct import deconstructible
 
 from django_grp_backend.access import is_admin
@@ -540,6 +541,7 @@ class ProtocolItem(models.Model):
     KIND_CHOICES = [
         ("text", "Freitext"),
         ("table", "Tabelle"),
+        ("medication", "Medikationsübersicht"),
     ]
 
     protocol = models.ForeignKey(
@@ -582,6 +584,16 @@ class ProtocolTodo(models.Model):
     - what: What needs to be done
     - who: Who is responsible
     - when: When it's due
+    - done_at: Wann sie erledigt wurde; leer heisst offen
+
+    **`done_at` als Zeitpunkt und nicht als Haekchen.** Eine Aufgabe aus
+    einem Protokoll ist Teil der Dokumentation: bei einer Rueckfrage zaehlt,
+    wann etwas getan wurde, nicht nur dass es getan wurde. Ein Wahrheitswert
+    verliert genau die Angabe, die man spaeter braucht.
+
+    Anders als eine Medikamentengabe laesst sich das wieder aufheben. Wer
+    versehentlich abhakt, hakt wieder ab - eine Aufgabe ist kein Nachweis
+    einer Handlung am Kind, sondern eine Merkliste.
     """
 
     protocol = models.ForeignKey(
@@ -592,17 +604,42 @@ class ProtocolTodo(models.Model):
         max_length=255, verbose_name="Who", help_text="Who is responsible"
     )
     when = models.DateTimeField(verbose_name="When", help_text="When it's due")
+    done_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Erledigt am",
+        help_text="Leer heißt: noch offen",
+    )
+    done_by = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        verbose_name="Erledigt von",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     position = models.IntegerField(default=0)
 
     class Meta:
+        # Offene zuerst, danach nach Frist. Eine erledigte Aufgabe zwischen
+        # zwei offenen ist Laerm in einer Liste, die zum Abarbeiten da ist.
         ordering = ["position", "when"]
         verbose_name = "Protocol Todo"
         verbose_name_plural = "Protocol Todos"
 
     def __str__(self) -> str:
         return f"{self.protocol} - {self.what[:50]}"
+
+    @property
+    def is_done(self) -> bool:
+        return self.done_at is not None
+
+    @property
+    def is_overdue(self) -> bool:
+        """Ueberfaellig ist nur, was offen ist - das war der ganze Fehler."""
+        if self.done_at is not None:
+            return False
+        return self.when < timezone.now()
 
 
 class ProtocolTemplate(models.Model):
@@ -799,19 +836,71 @@ def create_protocol_presence(sender, instance, created, **kwargs):
 # vorher fest, hier nicht.
 
 
+def medikationsuebersicht(group) -> dict:
+    """
+    Der Medikationsplan einer Gruppe als Momentaufnahme.
+
+    **Warum eingefroren und nicht live.** Ein Protokoll ist ein Nachweis.
+    Wuerde dieser Baustein beim Lesen die heutige Medikation zeigen, stuende
+    im Protokoll vom Maerz die Lage vom September - und die Frage "was
+    wussten wir damals" waere nicht mehr zu beantworten. Der Plan wird
+    deshalb beim Anlegen des Protokolls abgeschrieben und bleibt dann stehen.
+
+    Aufgenommen wird nur, was an diesem Tag gilt, und nur je Wirkstoff eine
+    Zeile. Wer das ganze Archiv eines Kindes in jede Teambesprechung legt,
+    legt ein Dokument an, das niemand liest.
+    """
+    from .akte import Medication
+
+    heute = date.today()
+    zeilen = []
+    laufend = (
+        Medication.objects.filter(resident__group=group)
+        .filter(valid_from__lte=heute)
+        .filter(models.Q(valid_to__isnull=True) | models.Q(valid_to__gte=heute))
+        .filter(resident__moved_out_since__isnull=True)
+        .select_related("resident")
+        .order_by("resident__last_name", "resident__first_name", "agent")
+    )
+    for eintrag in laufend:
+        zeiten = ", ".join(eintrag.times) if eintrag.times else ""
+        if eintrag.as_needed:
+            zeiten = "nach Bedarf" if not zeiten else f"{zeiten}, nach Bedarf"
+        zeilen.append(
+            [
+                eintrag.resident.get_full_name(),
+                eintrag.agent,
+                eintrag.dose,
+                zeiten,
+                eintrag.note,
+            ]
+        )
+
+    return {
+        "columns": ["Bewohner:in", "Wirkstoff", "Dosis", "Zeiten", "Hinweis"],
+        "rows": zeilen,
+        # Damit spaeter niemand raet, wann diese Zeilen entstanden sind.
+        "stand": heute.isoformat(),
+    }
+
+
 @receiver(post_save, sender=Protocol)
 def apply_protocol_template(sender, instance, created, **kwargs):
     """Tagesordnung aus der gewaehlten Vorlage erzeugen."""
     if not created or not instance.template_id:
         return
     for item in instance.template.items.all():
+        if item.kind == "medication":
+            daten = medikationsuebersicht(instance.group)
+        else:
+            daten = item.build_data()
         ProtocolItem.objects.create(
             protocol=instance,
             name=item.name,
             position=item.position,
             kind=item.kind,
             value=item.value or "",
-            data=item.build_data(),
+            data=daten,
         )
 
 
