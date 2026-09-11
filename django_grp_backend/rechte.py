@@ -482,6 +482,48 @@ def verwaltet(user) -> bool:
     return darf(user, ORG_STRUKTUR, schreiben=True)
 
 
+def zweitfaktor_pflicht(user) -> bool:
+    """
+    Muss dieses Konto einen zweiten Faktor haben?
+
+    Entschieden am 11. September 2026: freiwillig fuer alle, Pflicht fuer
+    Konten, die verwalten duerfen. Das sind genau die, mit denen sich am
+    meisten anrichten laesst - Personal, Organisation, Rollen.
+
+    Die Regel haengt an derselben Zeile wie `verwaltet()`, und das ist die
+    Kopplung, auf die es ankommt: es gibt keine Wiederherstellungscodes, die
+    Verwaltung setzt den Faktor zurueck. Jedes Konto, das zuruecksetzen darf,
+    ist damit ein Weg am Faktor vorbei. Waere die Pflicht anders geschnitten
+    als das Recht zum Zuruecksetzen, bliebe genau dort eine Luecke.
+    """
+    return verwaltet(user)
+
+
+def zweitfaktor_erfuellt(user) -> bool:
+    """
+    Ist die Pflicht erfuellt - oder besteht sie gar nicht?
+
+    Getrennt von `zweitfaktor_pflicht()`, und das ist keine Umstaendlichkeit.
+    Wuerde die Pflicht selbst davon abhaengen, ob ein Faktor aktiv ist, hoebe
+    sie sich in dem Moment auf, in dem sie greifen soll: kein Faktor, also
+    keine Verwaltungsrechte, also keine Pflicht. Die Pflicht haengt an den
+    Rechten, die Erfuellung am Datensatz.
+
+    Die Anmeldung selbst haelt das nicht auf. Wer verwalten darf und noch
+    keinen Faktor hat, kommt hinein und arbeitet weiter - nur die
+    Verwaltungsschreibzugriffe bleiben zu, bis er eingerichtet ist. Andersherum
+    haette die Einfuehrung am ersten Tag die ganze Verwaltung ausgesperrt,
+    und der erste Griff waere gewesen, die Pflicht wieder abzuschalten.
+    """
+    if not zweitfaktor_pflicht(user):
+        return True
+
+    from .models import ZweiterFaktor
+
+    eintrag = ZweiterFaktor.objects.filter(user=user).first()
+    return bool(eintrag and eintrag.ist_aktiv)
+
+
 def schreibt_dokumentation(user, objekt=None) -> bool:
     """
     Darf diese Person fachlich dokumentieren?

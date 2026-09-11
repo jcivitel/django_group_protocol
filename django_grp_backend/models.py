@@ -1116,6 +1116,83 @@ class Consent(models.Model):
         }[self.status]
 
 
+class ZweiterFaktor(models.Model):
+    """
+    Der zeitbasierte Einmalcode eines Kontos.
+
+    Optional, wie entschieden: wer will, schaltet ihn ein. Pflicht ist er nur
+    fuer Konten, die verwalten duerfen - siehe `rechte.zweitfaktor_pflicht`.
+    Das ist kein Zufall, sondern die Gegenseite der zweiten Entscheidung: es
+    gibt keine Wiederherstellungscodes, die Verwaltung setzt zurueck. Damit
+    ist jedes Konto, das zuruecksetzen darf, ein Weg am Faktor vorbei - und
+    genau deshalb muss es selbst einen haben.
+
+    Das Geheimnis steht verschluesselt, aus demselben Grund wie das
+    SMTP-Passwort: im Klartext stuende es in jedem Datenbank-Abzug, und die
+    wandern erfahrungsgemaess herum. Wer die .env hat, kommt daran - das ist
+    kein Tresor, aber es haelt den Schluessel aus Kopien heraus.
+
+    Angelegt heisst nicht aktiv. Zwischen "eingerichtet" und "bestaetigt"
+    liegt genau ein Schritt: ein Code, der stimmt. Ohne diese Trennung
+    koennte sich jemand aussperren, indem er die Einrichtung abbricht,
+    nachdem der Schluessel schon steht.
+    """
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="zweiter_faktor",
+        verbose_name="Konto",
+    )
+    geheim_verschluesselt = models.TextField(blank=True, default="", editable=False)
+
+    bestaetigt_am = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Bestätigt am",
+        help_text="Leer, solange die Einrichtung nicht abgeschlossen ist",
+    )
+
+    # Die Zeitscheibe der letzten erfolgreichen Anmeldung. Verhindert, dass
+    # derselbe Code in denselben dreissig Sekunden zweimal gilt - wer einer
+    # Fachkraft ueber die Schulter sieht, kaeme sonst direkt hinterher rein.
+    letzter_schritt = models.BigIntegerField(blank=True, null=True, editable=False)
+
+    erstellt_am = models.DateTimeField(auto_now_add=True)
+    zuletzt_verwendet = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        verbose_name = "Zweiter Faktor"
+        verbose_name_plural = "Zweite Faktoren"
+
+    def __str__(self) -> str:
+        stand = "aktiv" if self.ist_aktiv else "eingerichtet, nicht bestätigt"
+        return f"{self.user.username}: {stand}"
+
+    @property
+    def geheimnis(self) -> str:
+        from django_grp_mail.crypto import entschluesseln
+
+        return entschluesseln(self.geheim_verschluesselt)
+
+    @geheimnis.setter
+    def geheimnis(self, klartext: str) -> None:
+        from django_grp_mail.crypto import verschluesseln
+
+        self.geheim_verschluesselt = verschluesseln(klartext)
+
+    @property
+    def ist_aktiv(self) -> bool:
+        """
+        Nur ein bestaetigter Faktor zaehlt.
+
+        Ein angelegter, aber nie bestaetigter Datensatz darf die Anmeldung
+        nicht aufhalten - sonst sperrt eine abgebrochene Einrichtung das
+        Konto aus.
+        """
+        return self.bestaetigt_am is not None and bool(self.geheim_verschluesselt)
+
+
 # Die uebrige Bewohnerakte. Am Ende, weil sie Resident von hier braucht.
 from .akte import (  # noqa: E402,F401
     ChecklistItem,

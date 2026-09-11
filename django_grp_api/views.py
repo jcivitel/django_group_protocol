@@ -22,6 +22,7 @@ from django_grp_backend.access import WriteNeedsRole, is_admin, may_read_only
 from django_grp_backend.functions import upload_too_large
 from django_grp_backend.models import medikationsuebersicht
 from django_grp_backend.suche import suchen
+from django_grp_backend import zweitfaktor
 from django_grp_backend.models import (
     ChecklistItem,
     Incident,
@@ -41,6 +42,7 @@ from django_grp_backend.models import (
     ProtocolItem,
     ProtocolTemplate,
     ProtocolTodo,
+    ZweiterFaktor,
 )
 from .serializers import (
     ProtocolAttendanceSerializer,
@@ -87,6 +89,13 @@ def serverfehler(vorgang: str, fehler: Exception) -> Response:
         {"error": "Da ist etwas schiefgelaufen. Der Vorgang wurde protokolliert."},
         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
     )
+
+
+def zweitfaktor_stand(user) -> dict:
+    """Der Stand des zweiten Faktors, wie ihn die Anmeldung mitgibt."""
+    from .zweitfaktor_api import stand
+
+    return stand(user)
 
 
 class LoginView(APIView):
@@ -140,6 +149,34 @@ class LoginView(APIView):
         user = authenticate(request, username=username, password=password)
 
         if user is not None:
+            # Der zweite Faktor wird ERST hier geprueft, nach dem Passwort.
+            # Andersherum verriete die Antwort, ob ein Konto einen Faktor hat,
+            # bevor jemand das Passwort kennt - und damit, welche Konten
+            # interessant sind.
+            faktor = ZweiterFaktor.objects.filter(user=user).first()
+            if faktor is not None and faktor.ist_aktiv:
+                schritt = zweitfaktor.pruefen(
+                    faktor.geheimnis,
+                    request.data.get("code", ""),
+                    zuletzt=faktor.letzter_schritt,
+                )
+                if schritt is None:
+                    # Dieselbe Antwort, ob der Code fehlt oder falsch ist.
+                    # Der Client fragt daraufhin danach; ein Unterschied
+                    # brächte ihm nichts und einem Angreifer eine Auskunft.
+                    return Response(
+                        {
+                            "success": False,
+                            "zweitfaktor": True,
+                            "error": "Bitte den Code aus der App eingeben.",
+                        },
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
+
+                faktor.letzter_schritt = schritt
+                faktor.zuletzt_verwendet = timezone.now()
+                faktor.save(update_fields=["letzter_schritt", "zuletzt_verwendet"])
+
             # Get or create authentication token
             token, created = Token.objects.get_or_create(user=user)
             return Response(
@@ -154,6 +191,12 @@ class LoginView(APIView):
                             "first_name": user.first_name,
                             "last_name": user.last_name,
                         },
+                        # Pflicht ohne aktiven Faktor: die Anmeldung geht
+                        # durch, sonst sperrte die Einfuehrung die Verwaltung
+                        # aus. Die Oberflaeche fuehrt danach zur Einrichtung,
+                        # und die Rechtepruefung im Hintergrund weist
+                        # Verwaltungsschreibzugriffe bis dahin ab.
+                        "zweitfaktor": zweitfaktor_stand(user),
                     },
                 },
                 status=status.HTTP_200_OK,

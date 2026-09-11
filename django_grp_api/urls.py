@@ -6,6 +6,7 @@ from django_grp_care import api as care_api
 from django_grp_duty import api as duty_api
 from django_grp_mail import api as mail_api
 from django_grp_org import api as org_api
+from . import zweitfaktor_api
 
 from . import views
 from .media import MediaView
@@ -161,6 +162,34 @@ urlpatterns = [
         name="mail-retry",
     ),
     path("v1/auth/logout/", LogoutView.as_view(), name="auth-logout"),
+    # Der zweite Faktor. Optional fuer alle, Pflicht fuer Konten mit
+    # Verwaltungsrechten - und ohne Wiederherstellungscodes, deshalb der
+    # Notfallweg ueber die Verwaltung.
+    path(
+        "v1/zweitfaktor/",
+        zweitfaktor_api.ZweitfaktorStandView.as_view(),
+        name="zweitfaktor-stand",
+    ),
+    path(
+        "v1/zweitfaktor/einrichten/",
+        zweitfaktor_api.ZweitfaktorEinrichtenView.as_view(),
+        name="zweitfaktor-einrichten",
+    ),
+    path(
+        "v1/zweitfaktor/bestaetigen/",
+        zweitfaktor_api.ZweitfaktorBestaetigenView.as_view(),
+        name="zweitfaktor-bestaetigen",
+    ),
+    path(
+        "v1/zweitfaktor/aus/",
+        zweitfaktor_api.ZweitfaktorAusView.as_view(),
+        name="zweitfaktor-aus",
+    ),
+    path(
+        "v1/zweitfaktor/zuruecksetzen/",
+        zweitfaktor_api.ZweitfaktorZuruecksetzenView.as_view(),
+        name="zweitfaktor-zuruecksetzen",
+    ),
     path("v1/user/profile/", UserProfileView.as_view(), name="user-profile"),
     path("v1/user/me/", UserMeView.as_view(), name="user-me"),
     path("v1/", include(router.urls)),

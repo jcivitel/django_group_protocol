@@ -144,6 +144,11 @@ WATCHED = {
     # bezahlte Arbeitszeit. Das ist genau die Frage, auf die ein
     # Aenderungsprotokoll antworten soll.
     "django_grp_duty.TimeEntry",
+    # Der zweite Faktor. Es gibt keine Wiederherstellungscodes: wer sein
+    # Telefon verliert, laesst ihn von der Verwaltung zuruecksetzen. Damit
+    # ist jedes Zuruecksetzen ein Weg an einem Faktor vorbei, und genau das
+    # ist die Zeile, nach der bei einem Vorfall gefragt wird.
+    "django_grp_backend.ZweiterFaktor",
 }
 
 # Klartext statt Modellpfad.
@@ -205,7 +210,17 @@ def klartext(pfad: str) -> str:
 # django_grp_org/tasks.py, räumt ältere Einträge weg. Ohne sie wüchse die
 # Tabelle unbegrenzt.
 
-IGNORED_FIELDS = {"id", "created_at", "updated_at"}
+IGNORED_FIELDS = {
+    "id",
+    "created_at",
+    "updated_at",
+    # Das verschluesselte Geheimnis des zweiten Faktors. Es ist verschluesselt
+    # und damit kein Klartext, aber es gehoert trotzdem nicht in eine zweite
+    # Tabelle - ein Geheimnis an einer Stelle ist leichter zu drehen als
+    # eines an zweien. Interessant ist ohnehin nur, DASS jemand ihn gesetzt
+    # oder zurueckgesetzt hat.
+    "geheim_verschluesselt",
+}
 
 
 def _label(instance) -> str:

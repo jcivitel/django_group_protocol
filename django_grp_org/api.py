@@ -54,6 +54,18 @@ class StaffWritableViewSet(viewsets.ModelViewSet):
         if not is_admin(self.request.user):
             raise PermissionDenied("Nur die Verwaltung darf Stammdaten ändern.")
 
+        # Die eine Stelle, an der die Pflicht zum zweiten Faktor wirklich
+        # greift. Die Anmeldung laesst jeden durch - sonst sperrte die
+        # Einfuehrung am ersten Tag die ganze Verwaltung aus. Zu bleibt genau
+        # das, wofuer der Faktor gedacht ist: Stammdaten, Personal, Rollen.
+        from django_grp_backend.rechte import zweitfaktor_erfuellt
+
+        if not zweitfaktor_erfuellt(self.request.user):
+            raise PermissionDenied(
+                "Für Konten mit Verwaltungsrechten ist der zweite Faktor "
+                "Pflicht. Bitte zuerst unter Profil einrichten."
+            )
+
     def perform_create(self, serializer):
         self._require_staff()
         serializer.save()
