@@ -203,3 +203,56 @@ class MedikationImProtokollTestCase(APITestCase):
         )
         namen = {zeile[0] for zeile in medikationsuebersicht(self.gruppe)["rows"]}
         self.assertNotIn("Jon Nachbar", namen)
+
+
+class TagesprotokollVorlageTestCase(APITestCase):
+    """
+    Die Vorlage fuer den Alltag - und dass sie vorn steht.
+
+    Gruppenabend, Teambesprechung und Fallbesprechung sind Termine. Das
+    Tagesprotokoll ist die Schicht selbst und wird am haeufigsten
+    geschrieben; es stand als einziges nicht zur Auswahl.
+    """
+
+    def test_vorlage_ist_da_und_steht_vorn(self):
+        vorlagen = list(
+            ProtocolTemplate.objects.filter(group__isnull=True).order_by("position")
+        )
+        self.assertEqual(vorlagen[0].name, "Tagesprotokoll")
+        self.assertEqual(vorlagen[1].name, "Teambesprechung")
+
+    def test_medikation_ist_ein_eigener_baustein(self):
+        vorlage = ProtocolTemplate.objects.get(
+            name="Tagesprotokoll", group__isnull=True
+        )
+        self.assertTrue(vorlage.items.filter(kind="medication").exists())
+
+    def test_aufbau_folgt_dem_dienst(self):
+        """Erst die Uebergabe, zuletzt was offen bleibt."""
+        vorlage = ProtocolTemplate.objects.get(
+            name="Tagesprotokoll", group__isnull=True
+        )
+        namen = list(vorlage.items.order_by("position").values_list("name", flat=True))
+        self.assertEqual(namen[0], "Übergabe")
+        self.assertEqual(namen[-1], "Offen für die nächste Schicht")
+
+    def test_protokoll_daraus_traegt_die_medikation(self):
+        gruppe = Group.objects.create(
+            name="Ahorn", address="A", postalcode="11111", city="Hier"
+        )
+        kind = Resident.objects.create(
+            first_name="Tim", last_name="Ostermann",
+            group=gruppe, moved_in_since=date(2024, 1, 1),
+        )
+        Medication.objects.create(
+            resident=kind, agent="Methylphenidat", dose="1 Kapsel",
+            times=["07:30"], valid_from=date.today(),
+        )
+        vorlage = ProtocolTemplate.objects.get(
+            name="Tagesprotokoll", group__isnull=True
+        )
+        protokoll = Protocol.objects.create(
+            group=gruppe, protocol_date=date.today(), template=vorlage
+        )
+        punkt = protokoll.items.get(kind="medication")
+        self.assertEqual(punkt.data["rows"][0][1], "Methylphenidat")

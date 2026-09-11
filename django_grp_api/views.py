@@ -650,6 +650,14 @@ class TodoCollectionView(APIView):
                 "what": aufgabe.what,
                 "who": aufgabe.who,
                 "when": aufgabe.when,
+                # Ohne diese drei Felder zaehlt die Uebersicht jede Aufgabe
+                # als offen - auch die eben abgehakte. Der Endpunkt baut
+                # seine Antwort von Hand und ging beim Erledigt-Feld leer
+                # aus.
+                "done_at": aufgabe.done_at,
+                "done_by": aufgabe.done_by,
+                "is_done": aufgabe.is_done,
+                "is_overdue": aufgabe.is_overdue,
                 "position": aufgabe.position,
             }
             for aufgabe in aufgaben
