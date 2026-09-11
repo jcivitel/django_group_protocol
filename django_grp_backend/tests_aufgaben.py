@@ -287,3 +287,50 @@ class MedikationReihenfolgeTestCase(APITestCase):
                 vorlage.items.order_by("position").values_list("position", flat=True)
             )
             self.assertEqual(plaetze, list(range(len(plaetze))), name)
+
+
+class DruckbereichTestCase(APITestCase):
+    """
+    Wo auf der PDF-Vorlage gedruckt werden darf.
+
+    Ohne diese Felder begann der Text fest 56 Punkt unter der Oberkante und
+    lag bei jeder Vorlage mit Briefkopf mitten im Logo.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.konto = User.objects.create_user(
+            username="verwaltung", password="testpass123", is_staff=True
+        )
+        self.gruppe = Group.objects.create(
+            name="Ahorn", address="A", postalcode="11111", city="Hier"
+        )
+        self.client.force_authenticate(user=self.konto)
+
+    def test_vorgabe_ist_der_alte_wert(self):
+        """Wer nichts einstellt, bekommt das Verhalten von vorher."""
+        self.assertEqual(self.gruppe.pdf_top, 56)
+        self.assertEqual(self.gruppe.pdf_left, 56)
+
+    def test_steht_in_der_antwort(self):
+        antwort = self.client.get(f"/api/v1/group/{self.gruppe.id}/")
+        for feld in ("pdf_top", "pdf_right", "pdf_bottom", "pdf_left"):
+            self.assertIn(feld, antwort.data, feld)
+
+    def test_laesst_sich_aendern(self):
+        antwort = self.client.patch(
+            f"/api/v1/group/{self.gruppe.id}/",
+            {"pdf_top": 170.1},
+            format="json",
+        )
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+        self.gruppe.refresh_from_db()
+        self.assertAlmostEqual(self.gruppe.pdf_top, 170.1, places=1)
+
+    def test_andere_felder_bleiben(self):
+        """Ein PATCH auf den Bereich darf die Anschrift nicht anfassen."""
+        self.client.patch(
+            f"/api/v1/group/{self.gruppe.id}/", {"pdf_top": 100}, format="json"
+        )
+        self.gruppe.refresh_from_db()
+        self.assertEqual(self.gruppe.city, "Hier")

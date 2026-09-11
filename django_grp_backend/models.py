@@ -179,6 +179,18 @@ class Group(models.Model):
     group_members = models.ManyToManyField(User, blank=True)
     pdf_template = models.FileField(upload_to="docs/", blank=True, null=True)
 
+    # Wo auf der Vorlage gedruckt werden darf, in PDF-Punkten vom jeweiligen
+    # Rand (72 Punkt = 1 Zoll = 25,4 mm).
+    #
+    # Ohne das beginnt der Text 56 Punkt unter der Oberkante - und landet
+    # bei jedem Briefkopf mitten im Logo. Die Werte stehen an der Gruppe und
+    # nicht global, weil jeder Traeger sein eigenes Papier hat und manche
+    # Gruppen ein eigenes.
+    pdf_top = models.FloatField(default=56, verbose_name="Abstand oben")
+    pdf_right = models.FloatField(default=56, verbose_name="Abstand rechts")
+    pdf_bottom = models.FloatField(default=56, verbose_name="Abstand unten")
+    pdf_left = models.FloatField(default=56, verbose_name="Abstand links")
+
     objects = GroupManager()
 
     class Meta:

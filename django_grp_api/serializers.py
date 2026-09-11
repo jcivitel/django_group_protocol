@@ -176,6 +176,10 @@ class GroupSerializer(serializers.ModelSerializer):
             "city",
             "members",
             "pdf_template",
+            "pdf_top",
+            "pdf_right",
+            "pdf_bottom",
+            "pdf_left",
             "color",
         ]
 
