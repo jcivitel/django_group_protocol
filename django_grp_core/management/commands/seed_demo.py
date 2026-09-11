@@ -21,6 +21,7 @@ Konten mit bekanntem Passwort hinterlässt, ist eine offene Tür.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 from decimal import Decimal
 
 from django.contrib.auth.models import User
@@ -427,6 +428,7 @@ class Command(BaseCommand):
         self._wuensche(traeger, personen)
         self._hilfeplanung(traeger, bewohner, personen)
         self._akte(bewohner, personen)
+        self._briefbogen(gruppen)
 
         self._passwort(options["passwort"])
         self._bilanz(traeger)
@@ -1250,6 +1252,79 @@ class Command(BaseCommand):
             "  Bewohnerakte: Allergien, Einwilligungen, Schule, Abwesenheit, "
             "Medikation, Checkliste, Barbetrag, Vorkommnisse"
         )
+
+    # ----------------------------------------------------------- Briefbogen
+
+    def _briefbogen(self, gruppen):
+        """
+        Legt einen Briefbogen an und setzt den Druckbereich darunter.
+
+        Ohne hinterlegte Vorlage zeigt die Gruppenseite den Druckbereich gar
+        nicht - und die Wissensdatenbank haette an dieser Stelle kein Bild.
+        Der Bogen entsteht deshalb hier und nicht von Hand: ein
+        Bildschirmfoto, das sich nicht nachstellen laesst, veraltet beim
+        ersten Umbau.
+
+        Nur die erste Gruppe bekommt ihn. Zwei Gruppen mit demselben Bogen
+        waeren eine Wiederholung ohne Aussage.
+        """
+        from django.conf import settings
+        from reportlab.lib.colors import Color
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+
+        if not gruppen:
+            return
+        gruppe = gruppen[0]
+        if gruppe.pdf_template:
+            return
+
+        ordner = Path(settings.MEDIA_ROOT) / "docs"
+        ordner.mkdir(parents=True, exist_ok=True)
+        ziel = ordner / "wegzeichen-briefbogen.pdf"
+
+        breite, hoehe = A4
+        blatt = canvas.Canvas(str(ziel), pagesize=A4)
+
+        # Kopfband. 150 Punkt hoch - genau der Bereich, der frei bleiben muss.
+        blatt.setFillColor(Color(0.42, 0.35, 0.29))
+        blatt.rect(0, hoehe - 150, breite, 150, stroke=0, fill=1)
+        blatt.setFillColor(Color(1, 0.98, 0.94))
+        blatt.setFont("Helvetica-Bold", 20)
+        blatt.drawString(48, hoehe - 76, TRAEGER)
+        blatt.setFillColor(Color(0.88, 0.92, 0.78))
+        blatt.setFont("Helvetica", 10)
+        blatt.drawString(48, hoehe - 98, f"{ORT[0]} · {ORT[1]} {ORT[2]}")
+
+        # Fussleiste.
+        blatt.setFillColor(Color(0.94, 0.93, 0.89))
+        blatt.rect(0, 0, breite, 64, stroke=0, fill=1)
+        blatt.setFillColor(Color(0.42, 0.35, 0.29))
+        blatt.setFont("Helvetica", 8)
+        blatt.drawString(
+            48, 30, "Amtsgericht Talheim HRB 4711 · Geschäftsführung: I. Warnke"
+        )
+
+        blatt.showPage()
+        blatt.save()
+
+        gruppe.pdf_template = "docs/wegzeichen-briefbogen.pdf"
+        # Unter das Kopfband und mit 20 mm ringsum - so, wie es jemand
+        # einstellen wuerde, der den Bogen vor sich hat.
+        gruppe.pdf_top = 170
+        gruppe.pdf_right = 57
+        gruppe.pdf_bottom = 80
+        gruppe.pdf_left = 57
+        gruppe.save(
+            update_fields=[
+                "pdf_template",
+                "pdf_top",
+                "pdf_right",
+                "pdf_bottom",
+                "pdf_left",
+            ]
+        )
+        self.stdout.write(f"  Briefbogen: {gruppe.name}")
 
     def _passwort(self, passwort: str):
         if not passwort:
