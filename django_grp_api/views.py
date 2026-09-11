@@ -911,6 +911,7 @@ class SucheView(APIView):
                         ("protokoll", "protokolle", "Protokolle"),
                         ("verlauf", "verlauf", "Verlauf"),
                         ("bewohner", "bewohner", "Bewohner"),
+                        ("personal", "personal", "Personal"),
                     )
                     if ergebnis[schluessel]
                 ],

@@ -224,3 +224,70 @@ class SucheDirektTestCase(APITestCase):
         self.assertEqual(ergebnis["protokolle"], [])
         self.assertEqual(ergebnis["verlauf"], [])
         self.assertEqual(ergebnis["bewohner"], [])
+
+
+class SuchePersonalTestCase(APITransactionTestCase):
+    """
+    Personal findet nur, wer die Personalseite ohnehin oeffnen darf.
+
+    Der Fall, der beim Bauen einer Suche am leichtesten durchrutscht: die
+    Suche wird zum bequemen Weg um eine Rechtepruefung herum, und es faellt
+    niemandem auf, weil ein Treffer wie ein Erfolg aussieht.
+    """
+
+    def setUp(self):
+        from django_grp_org.models import Employee, Provider
+
+        self.client = APIClient()
+        self.verwaltung = User.objects.create_user(
+            username="verwaltung", password="testpass123", is_staff=True
+        )
+        self.fachkraft = User.objects.create_user(
+            username="fach", password="testpass123"
+        )
+
+        self.traeger = Provider.objects.create(name="Wegzeichen")
+        Employee.objects.create(
+            provider=self.traeger,
+            first_name="Tobias",
+            last_name="Ehlert",
+            hired_on=date(2024, 1, 1),
+            access_level="specialist",
+        )
+
+    def hole(self, frage, konto):
+        self.client.force_authenticate(user=konto)
+        return self.client.get(f"/api/v1/suche/?q={frage}")
+
+    def test_verwaltung_findet_personal(self):
+        gruppen = {
+            g["art"]: g for g in self.hole("ehlert", self.verwaltung).data["gruppen"]
+        }
+        self.assertIn("personal", gruppen)
+        self.assertEqual(gruppen["personal"]["treffer"][0]["titel"], "Tobias Ehlert")
+
+    def test_fachkraft_findet_kein_personal(self):
+        gruppen = {
+            g["art"]: g for g in self.hole("ehlert", self.fachkraft).data["gruppen"]
+        }
+        self.assertNotIn("personal", gruppen)
+
+    def test_auch_ohne_gruppe(self):
+        """
+        Eine Personalabteilung hat keine Wohngruppe. Ohne diese Ausnahme
+        faende sie ueber die Suche gar nichts.
+        """
+        self.assertEqual(self.verwaltung.group_set.count(), 0)
+        gruppen = {
+            g["art"]: g for g in self.hole("tobias", self.verwaltung).data["gruppen"]
+        }
+        self.assertIn("personal", gruppen)
+
+    def test_personalnummer_zaehlt_mit(self):
+        from django_grp_org.models import Employee
+
+        Employee.objects.filter(last_name="Ehlert").update(personnel_number="4711")
+        gruppen = {
+            g["art"]: g for g in self.hole("4711", self.verwaltung).data["gruppen"]
+        }
+        self.assertIn("personal", gruppen)

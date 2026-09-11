@@ -31,6 +31,19 @@ dreien. Im Boolean-Modus heißt das `+wort1* +wort2*` — der Stern, weil InnoDB
 keine deutsche Wortstammbildung kennt und „Medikament" sonst
 „Medikamentenplan" nicht findet.
 
+## Wer was findet
+
+Protokolle, Verlauf und Bewohner: jeder in seinen eigenen Gruppen.
+
+**Personal nur für Verwaltungskonten.** Wer die Personalseite nicht öffnen
+darf, soll Kolleginnen auch nicht über die Suche finden — sonst wäre die
+Suche der bequeme Weg um eine Rechteprüfung herum. Gefragt wird dasselbe
+wie auf der Seite selbst.
+
+Personal wird auch dann durchsucht, wenn das Konto in keiner Gruppe ist.
+Eine Personalabteilung hat keine Wohngruppe, und ohne diese Ausnahme fände
+sie über die Suche gar nichts.
+
 ## Was die Suche nicht tut
 
 Sie durchsucht keine Fallakten und keine geschützten Vermerke. Das ist keine
@@ -55,6 +68,7 @@ from django.db import OperationalError, ProgrammingError, connection
 from django.db.models import Q
 
 from .access import employee_of  # noqa: F401  (haelt die Abhaengigkeit sichtbar)
+from .rechte import verwaltet
 
 log = logging.getLogger("django_grp.suche")
 
@@ -190,6 +204,54 @@ def _wie_like(queryset, spalte: str, woerter: list[str]):
     return queryset.filter(bedingung)
 
 
+def _personal(user, woerter: list[str]) -> list:
+    """
+    Personaldatensätze, wenn das Konto sie ohnehin sehen darf.
+
+    Nach Namensanfang und Personalnummer, nicht über den Volltextindex:
+    Namen sind kurz, und „and" soll nicht jeden zweiten Nachnamen finden.
+
+    **Gefragt wird `verwaltet()` und nicht das Leserecht am Endpunkt.** Der
+    Endpunkt `/api/v1/employee/` lässt jeden Angemeldeten lesen, weil der
+    Dienstplan die Namen der Kolleginnen braucht. Die Personalseite selbst
+    steht aber nur der Verwaltung offen. Träfe die Suche die weitere Regel,
+    böte sie einer Fachkraft Treffer an, deren Link auf eine Seite führt,
+    die sie nicht öffnen darf — und zeigte dabei Zugriffsstufe und
+    Personalnummer.
+    """
+    if not verwaltet(user):
+        return []
+
+    from django_grp_org.models import Employee
+    from django_grp_org.tenancy import limit_to_tenant
+
+    namen = Q()
+    for wort in woerter:
+        namen |= (
+            Q(first_name__istartswith=wort)
+            | Q(last_name__istartswith=wort)
+            | Q(personnel_number__istartswith=wort)
+        )
+
+    return [
+        Treffer(
+            art="personal",
+            id=person.id,
+            titel=person.get_full_name(),
+            unterzeile=(
+                person.get_access_level_display()
+                + (" · ausgeschieden" if person.left_on else "")
+            ),
+            ausschnitt="",
+            datum=person.hired_on,
+            pfad=f"/personal?person={person.id}",
+        )
+        for person in limit_to_tenant(
+            Employee.objects.filter(namen), user
+        ).order_by("last_name", "first_name")[:GRENZE]
+    ]
+
+
 def suchen(user, suchtext: str) -> dict:
     """
     Sucht in Protokollen, Verlauf und Bewohnern der eigenen Gruppen.
@@ -212,7 +274,12 @@ def suchen(user, suchtext: str) -> dict:
             "protokolle": [],
             "verlauf": [],
             "bewohner": [],
+            "personal": [],
         }
+
+    # Personal haengt nicht an Gruppen: eine Personalabteilung hat keine
+    # Wohngruppe und faende sonst gar nichts.
+    personal = _personal(user, woerter)
 
     gruppen = _sichtbare_gruppen(user)
     if not gruppen:
@@ -222,6 +289,7 @@ def suchen(user, suchtext: str) -> dict:
             "protokolle": [],
             "verlauf": [],
             "bewohner": [],
+            "personal": personal,
         }
 
     ausdruck = boolean_ausdruck(woerter)
@@ -341,4 +409,5 @@ def suchen(user, suchtext: str) -> dict:
         "protokolle": protokolle[:GRENZE],
         "verlauf": verlauf,
         "bewohner": bewohner,
+        "personal": personal,
     }
