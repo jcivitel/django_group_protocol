@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from PIL import Image
 from django.conf import settings
@@ -670,6 +670,106 @@ class TodoCollectionView(APIView):
         if not wert:
             return None
         return parse_date(wert)
+
+
+class FaelligeGabenView(APIView):
+    """
+    Was heute an Medikation ansteht - ueber alle zugaenglichen Bewohner.
+
+    GET /api/v1/medikation/faellig/?tag=2026-09-11
+
+    Warum es diesen Endpunkt gibt: die Begleit-App fragte je Bewohner einmal
+    `/resident/{id}/medication/` und drehte die Antworten selbst nach Uhrzeit.
+    Bei zehn Bewohnern sind das zehn Rundlaeufe, im Dienst ueber Mobilfunk.
+    Dieselbe Ueberlegung wie bei TodoCollectionView.
+
+    Das Umdrehen passiert hier, weil es hier billig ist: die Zeitpunkte stehen
+    als Liste am Medikament, und die Gaben des Tages kommen in einer Abfrage
+    dazu.
+
+    **Bedarfsmedikation bleibt draussen.** Sie hat keinen Zeitpunkt und stuende
+    sonst zu jeder Stunde als ueberfaellig in der Liste. Sie gehoert auf die
+    Seite der Bewohnerin, wo die Bedingung danebensteht.
+    """
+
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
+
+    def get(self, request):
+        tag = parse_date(request.query_params.get("tag") or "") or (
+            timezone.localdate()
+        )
+
+        bewohner = Resident.objects.for_user(request.user)
+        medikamente = (
+            Medication.objects.filter(resident__in=bewohner, as_needed=False)
+            .filter(valid_from__lte=tag)
+            .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=tag))
+            .select_related("resident")
+        )
+
+        # Die Gaben des Tages in einer Abfrage, nicht je Medikament. Der
+        # Schluessel ist (Medikament, Minute) - genau das, was die Oberflaeche
+        # zum Abgleichen braucht.
+        beginn = datetime.combine(tag, time.min)
+        ende = datetime.combine(tag, time.max)
+        if timezone.is_aware(timezone.now()):
+            beginn = timezone.make_aware(beginn)
+            ende = timezone.make_aware(ende)
+
+        gaben = {}
+        for gabe in MedicationAdministration.objects.filter(
+            medication__in=medikamente, scheduled_for__range=(beginn, ende)
+        ):
+            geplant = timezone.localtime(gabe.scheduled_for)
+            gaben[(gabe.medication_id, geplant.hour, geplant.minute)] = gabe
+
+        zeilen = []
+        for medikament in medikamente:
+            for stunde, minute in self._zeitpunkte(medikament.times):
+                gabe = gaben.get((medikament.id, stunde, minute))
+                zeilen.append(
+                    {
+                        "resident": medikament.resident_id,
+                        "resident_name": medikament.resident.get_full_name(),
+                        "medication": medikament.id,
+                        "agent": medikament.agent,
+                        "product": medikament.product,
+                        "dose": medikament.dose,
+                        "note": medikament.note,
+                        "scheduled_for": datetime.combine(
+                            tag, time(stunde, minute)
+                        ).isoformat(),
+                        "administration": (
+                            MedicationAdministrationSerializer(gabe).data
+                            if gabe
+                            else None
+                        ),
+                    }
+                )
+
+        zeilen.sort(key=lambda zeile: (zeile["scheduled_for"], zeile["resident_name"]))
+        return Response(zeilen, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _zeitpunkte(werte):
+        """
+        Aus `["08:00", "20:00"]` werden Paare (8, 0) und (20, 0).
+
+        `times` ist ein freies JSON-Feld. Ein Eintrag, der keine Uhrzeit ist,
+        wird uebergangen und nimmt die uebrigen nicht mit.
+        """
+        punkte = []
+        for wert in werte or []:
+            teile = str(wert).split(":")
+            if len(teile) < 2:
+                continue
+            try:
+                stunde, minute = int(teile[0]), int(teile[1])
+            except ValueError:
+                continue
+            if 0 <= stunde < 24 and 0 <= minute < 60:
+                punkte.append((stunde, minute))
+        return sorted(punkte)
 
 
 class ProtocolAttendanceViewSet(ProtocolScopedViewSet):

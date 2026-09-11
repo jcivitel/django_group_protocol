@@ -23,6 +23,7 @@ from .views import (
     ResidentPictureUploadView,
     GroupPDFTemplateView,
     ProtocolPresenceListView,
+    FaelligeGabenView,
     TodoCollectionView,
     ProtocolExportedFileView,
     AdminUserListView,
@@ -286,6 +287,11 @@ urlpatterns = [
     path("v1/presence/", ProtocolPresenceUpdateView.as_view(), name="update-presence"),
     # Sammelabfrage statt Faecher: siehe TodoCollectionView.
     path("v1/todo/", TodoCollectionView.as_view(), name="todo-collection"),
+    path(
+        "v1/medikation/faellig/",
+        FaelligeGabenView.as_view(),
+        name="medikation-faellig",
+    ),
     path("v1/item/", ItemValuesUpdateView.as_view(), name="update-item"),
     # Bilddrehen laeuft ueber die Bewohnernummer, nicht mehr ueber einen
     # Dateipfad aus dem Rumpf (S5). Die alte Adresse bleibt bestehen, verlangt

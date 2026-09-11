@@ -288,6 +288,138 @@ class MedikationTestCase(AkteBasis):
         self.assertEqual(len(eintraege(antwort)), 0)
 
 
+class FaelligeGabenTestCase(AkteBasis):
+    """
+    Der Sammelendpunkt fuer den Dienst.
+
+    Die Begleit-App fragte je Bewohner einmal `/resident/{id}/medication/`
+    und drehte die Antworten selbst nach Uhrzeit. Bei zehn Bewohnern sind
+    das zehn Rundlaeufe, im Dienst ueber Mobilfunk. Hier steht die Regel
+    unter Test, an der die Zusammenstellung haengt.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.heute = date.today()
+        self.morgens = Medication.objects.create(
+            resident=self.kind,
+            agent="Methylphenidat",
+            product="Medikinet retard 20 mg",
+            dose="1 Kapsel",
+            times=["07:30", "12:00"],
+            valid_from=self.heute - timedelta(days=30),
+        )
+
+    def test_eine_zeile_je_zeitpunkt(self):
+        antwort = self.client.get("/api/v1/medikation/faellig/")
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+
+        zeiten = [z["scheduled_for"][11:16] for z in antwort.data]
+        self.assertEqual(zeiten, ["07:30", "12:00"])
+        self.assertEqual(antwort.data[0]["resident_name"], "Nele Beispiel")
+        self.assertEqual(antwort.data[0]["product"], "Medikinet retard 20 mg")
+
+    def test_bedarfsmedikation_bleibt_draussen(self):
+        """
+        Sie hat keinen Zeitpunkt und stuende sonst zu jeder Stunde als
+        ueberfaellig in der Liste.
+        """
+        Medication.objects.create(
+            resident=self.kind,
+            agent="Ibuprofen",
+            dose="200 mg",
+            as_needed=True,
+            note="Bei Kopfschmerzen, hoechstens zweimal am Tag",
+            valid_from=self.heute - timedelta(days=5),
+        )
+
+        antwort = self.client.get("/api/v1/medikation/faellig/")
+        wirkstoffe = {z["agent"] for z in antwort.data}
+        self.assertNotIn("Ibuprofen", wirkstoffe)
+
+    def test_abgelaufenes_medikament_steht_nicht_drin(self):
+        Medication.objects.create(
+            resident=self.kind,
+            agent="Amoxicillin",
+            dose="500 mg",
+            times=["08:00"],
+            valid_from=self.heute - timedelta(days=20),
+            valid_to=self.heute - timedelta(days=2),
+        )
+
+        antwort = self.client.get("/api/v1/medikation/faellig/")
+        wirkstoffe = {z["agent"] for z in antwort.data}
+        self.assertNotIn("Amoxicillin", wirkstoffe)
+
+    def test_eingetragene_gabe_haengt_an_ihrer_zeile(self):
+        gabe = MedicationAdministration.objects.create(
+            medication=self.morgens,
+            scheduled_for=timezone.make_aware(
+                datetime.combine(self.heute, datetime.min.time()).replace(
+                    hour=7, minute=30
+                )
+            ),
+            given_at=timezone.now(),
+            given_by=self.fachkraft,
+            given_by_name="Mara Ott",
+            amount="1 Kapsel",
+        )
+
+        antwort = self.client.get("/api/v1/medikation/faellig/")
+        zeilen = {z["scheduled_for"][11:16]: z for z in antwort.data}
+
+        self.assertIsNotNone(zeilen["07:30"]["administration"])
+        self.assertEqual(zeilen["07:30"]["administration"]["id"], gabe.id)
+        self.assertEqual(
+            zeilen["07:30"]["administration"]["given_by_name"], "Mara Ott"
+        )
+        # Die zweite Zeile bleibt offen. Ohne diese Pruefung faerbte eine
+        # Gabe alle Zeitpunkte desselben Medikaments ab.
+        self.assertIsNone(zeilen["12:00"]["administration"])
+
+    def test_fremde_gruppe_bleibt_draussen(self):
+        """
+        Dieselbe Schranke wie in den Listen. Ein Sammelendpunkt, der an der
+        Rechtepruefung vorbeifuehrt, waere die bequemste Luecke von allen.
+        """
+        fremdes_kind = Resident.objects.create(
+            first_name="Ole",
+            last_name="Fremd",
+            moved_in_since=date(2024, 1, 1),
+            group=self.andere,
+        )
+        Medication.objects.create(
+            resident=fremdes_kind,
+            agent="Sertralin",
+            dose="50 mg",
+            times=["08:00"],
+            valid_from=self.heute - timedelta(days=10),
+        )
+
+        antwort = self.client.get("/api/v1/medikation/faellig/")
+        namen = {z["resident_name"] for z in antwort.data}
+        self.assertNotIn("Ole Fremd", namen)
+
+    def test_unbrauchbare_uhrzeit_nimmt_die_uebrigen_nicht_mit(self):
+        """
+        `times` ist ein freies JSON-Feld. Ein Eintrag "morgens" darf die
+        Zeile daneben nicht verschlucken.
+        """
+        self.morgens.times = ["08:00", "morgens", "", "25:00", "20:00"]
+        self.morgens.save(update_fields=["times"])
+
+        antwort = self.client.get("/api/v1/medikation/faellig/")
+        zeiten = [z["scheduled_for"][11:16] for z in antwort.data]
+        self.assertEqual(zeiten, ["08:00", "20:00"])
+
+    def test_anderer_tag_auf_wunsch(self):
+        morgen = self.heute + timedelta(days=1)
+        antwort = self.client.get(
+            "/api/v1/medikation/faellig/", {"tag": morgen.isoformat()}
+        )
+        self.assertEqual(antwort.data[0]["scheduled_for"][:10], morgen.isoformat())
+
+
 class VorkommnisTestCase(AkteBasis):
     """
     Besondere Vorkommnisse nach § 47 SGB VIII.
