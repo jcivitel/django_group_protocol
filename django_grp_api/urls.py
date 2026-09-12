@@ -6,6 +6,7 @@ from django_grp_care import api as care_api
 from django_grp_duty import api as duty_api
 from django_grp_mail import api as mail_api
 from django_grp_org import api as org_api
+from . import rechte_api
 from . import zweitfaktor_api
 
 from . import views
@@ -165,6 +166,19 @@ urlpatterns = [
     # Der zweite Faktor. Optional fuer alle, Pflicht fuer Konten mit
     # Verwaltungsrechten - und ohne Wiederherstellungscodes, deshalb der
     # Notfallweg ueber die Verwaltung.
+    # Die Rechtematrix je Person. Wer hier schreiben darf, kann sich alles
+    # Uebrige selbst geben - deshalb dieselben Sperren wie beim zweiten
+    # Faktor, und jede Aenderung im Aenderungsprotokoll.
+    path(
+        "v1/rechte/vorlagen/",
+        rechte_api.VorlagenView.as_view(),
+        name="rechte-vorlagen",
+    ),
+    path(
+        "v1/rechte/<int:user_id>/",
+        rechte_api.MatrixView.as_view(),
+        name="rechte-matrix",
+    ),
     path(
         "v1/zweitfaktor/",
         zweitfaktor_api.ZweitfaktorStandView.as_view(),

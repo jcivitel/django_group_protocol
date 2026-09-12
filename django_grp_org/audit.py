@@ -149,6 +149,10 @@ WATCHED = {
     # ist jedes Zuruecksetzen ein Weg an einem Faktor vorbei, und genau das
     # ist die Zeile, nach der bei einem Vorfall gefragt wird.
     "django_grp_backend.ZweiterFaktor",
+    # Die Rechtematrix. Wer wem welches Recht gegeben hat, ist bei
+    # einem Vorfall die erste Frage - und die einzige, die sich
+    # nachtraeglich nicht rekonstruieren laesst.
+    "django_grp_backend.Rechtezuweisung",
 }
 
 # Klartext statt Modellpfad.

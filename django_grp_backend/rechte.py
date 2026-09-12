@@ -74,6 +74,102 @@ NACHWEISE = "auswertung.nachweise"
 AENDERUNGSPROTOKOLL = "auswertung.protokoll"
 
 
+# ------------------------------------------------------------ Beschriftung
+#
+# Was die Oberflaeche anzeigt. Die Kennungen oben sind fuer den Quelltext
+# gedacht, diese Namen fuer die Person, die die Matrix ausfuellt - und die
+# denkt in Merkmalen der Anwendung und nicht in Punkten einer Kennung.
+
+AKTION_LABEL: dict[str, str] = {
+    PROTOKOLLE: "Protokolle",
+    BEWOHNER: "Bewohner",
+    FALLAKTE: "Fallakten",
+    FALLAKTE_GESCHUETZT: "Geschützte Vermerke",
+    DIENSTPLAN_BEARBEITEN: "Dienstplan",
+    DIENSTPLAN_FREIGEBEN: "Dienstplan freigeben",
+    ABWESENHEIT_GENEHMIGEN: "Abwesenheiten",
+    ZEIT_ERFASSEN: "Zeiterfassung",
+    ZEITKONTO_ABSCHLIESSEN: "Zeitkonten abschließen",
+    PERSONAL_STAMMDATEN: "Personal",
+    PERSONAL_QUALIFIKATION: "Qualifikationen",
+    PERSONAL_ROLLEN: "Rechte vergeben",
+    ORG_STRUKTUR: "Organisation",
+    ORG_DIENSTARTEN: "Dienstarten",
+    ORG_KALENDER: "Feiertage",
+    AUSWERTUNG: "Auswertungen",
+    NACHWEISE: "Nachweise",
+    AENDERUNGSPROTOKOLL: "Änderungsprotokoll",
+}
+
+# Ein Satz je Zeile, der sagt, was das Recht im Alltag oeffnet. Ohne ihn
+# raet die Person, die die Matrix ausfuellt - und im Zweifel gibt sie zu
+# viel.
+AKTION_HINWEIS: dict[str, str] = {
+    PROTOKOLLE: "Gruppenprotokolle lesen und schreiben, Aufgaben abhaken.",
+    BEWOHNER: "Die Bewohnerakte: Stammdaten, Allergien, Medikation, Vorkommnisse.",
+    FALLAKTE: "Hilfeplanung, Ziele, Fallkonferenzen, Leistungsnachweis.",
+    FALLAKTE_GESCHUETZT: (
+        "Die geschützte Tiefe der Fallakte. Gehört zur Bezugsbetreuung und "
+        "zur Leitung, nicht zum ganzen Team."
+    ),
+    DIENSTPLAN_BEARBEITEN: "Dienste einteilen und den Plan bearbeiten.",
+    DIENSTPLAN_FREIGEBEN: "Einen Plan veröffentlichen. Danach sehen ihn alle.",
+    ABWESENHEIT_GENEHMIGEN: "Urlaub und Abwesenheiten entscheiden.",
+    ZEIT_ERFASSEN: "Eigene Zeiten buchen.",
+    ZEITKONTO_ABSCHLIESSEN: (
+        "Einen Monat schließen. Danach ändert sich am Konto nichts mehr."
+    ),
+    PERSONAL_STAMMDATEN: "Personaldatensätze, Verträge, Zuordnung zu Gruppen.",
+    PERSONAL_QUALIFIKATION: "Qualifikationen je Person pflegen.",
+    PERSONAL_ROLLEN: (
+        "Diese Matrix bei anderen ändern. Wer das darf, kann sich alles "
+        "Übrige selbst geben."
+    ),
+    ORG_STRUKTUR: "Träger, Standorte, Einrichtungen, Bereiche.",
+    ORG_DIENSTARTEN: "Dienstarten und ihre Zeiten.",
+    ORG_KALENDER: "Feiertage je Bundesland.",
+    AUSWERTUNG: "Kennzahlen und Berichte.",
+    NACHWEISE: "Nachweise für das Jugendamt und die amtliche Statistik.",
+    AENDERUNGSPROTOKOLL: "Wer wann welchen Datensatz geändert hat.",
+}
+
+# Die Reihenfolge, in der die Matrix erscheint. Nach der Frage geschnitten,
+# die jemand im Kopf hat - nicht nach der Reihenfolge, in der die Kennungen
+# oben zufaellig stehen.
+AKTION_GRUPPEN: list[tuple[str, list[str]]] = [
+    ("Tägliche Arbeit", [PROTOKOLLE, BEWOHNER]),
+    ("Fallarbeit", [FALLAKTE, FALLAKTE_GESCHUETZT]),
+    (
+        "Dienst und Zeit",
+        [
+            DIENSTPLAN_BEARBEITEN,
+            DIENSTPLAN_FREIGEBEN,
+            ABWESENHEIT_GENEHMIGEN,
+            ZEIT_ERFASSEN,
+            ZEITKONTO_ABSCHLIESSEN,
+        ],
+    ),
+    ("Auswertung", [AUSWERTUNG, NACHWEISE, AENDERUNGSPROTOKOLL]),
+    (
+        "Verwaltung",
+        [
+            PERSONAL_STAMMDATEN,
+            PERSONAL_QUALIFIKATION,
+            PERSONAL_ROLLEN,
+            ORG_STRUKTUR,
+            ORG_DIENSTARTEN,
+            ORG_KALENDER,
+        ],
+    ),
+]
+
+# Alle Aktionen in der Reihenfolge der Gruppen. Eine Liste, die sich aus der
+# Gliederung ergibt statt daneben gepflegt zu werden - sonst fehlt beim
+# naechsten Zusatz genau eine Zeile, und niemand merkt es.
+ALLE_AKTIONEN: list[str] = [a for _, zeilen in AKTION_GRUPPEN for a in zeilen]
+
+
+
 # ------------------------------------------------------------------- Stufen
 KEIN = 0
 LESEN = 1
@@ -404,10 +500,44 @@ def generalschluessel(user) -> bool:
     )
 
 
+def _aus_matrix(user, aktion, noetig):
+    """
+    Aus der Matrix dieser Person, wenn eine gesetzt ist.
+
+    Gibt `None` zurueck, wenn nichts gesetzt ist - dann entscheidet die
+    Stufe wie bisher. Das ist der Unterschied zwischen "nichts eingetragen"
+    und "nichts erlaubt": ein Konto, an dem noch niemand war, soll
+    weiterarbeiten und nicht stillschweigend alles verlieren.
+
+    Eine gesetzte Matrix ist dagegen vollstaendig. Fehlt darin eine Zeile,
+    heisst das kein Zugriff - sonst waere ein Entzug nicht moeglich, weil er
+    aussaehe wie eine Luecke.
+    """
+    from .models import Rechtezuweisung
+
+    zeilen = {
+        z.aktion: z.stufe for z in Rechtezuweisung.objects.filter(user=user)
+    }
+    if not zeilen:
+        return None
+    return zeilen.get(aktion, KEIN) >= noetig
+
+
 def _aus_stufe(user, aktion, noetig) -> bool:
-    """Wie bisher: eine Stufe, die für die ganze Anwendung gilt."""
+    """
+    Die Matrix der Person, sonst ihre Stufe.
+
+    Der Generalschluessel steht davor und bleibt, wo er ist: Superuser und
+    is_staff duerfen immer alles. Das ist der Notausgang fuer den Tag, an
+    dem sich jemand mit der Matrix selbst aussperrt - und der Tag kommt.
+    """
     if generalschluessel(user):
         return True
+
+    aus_matrix = _aus_matrix(user, aktion, noetig)
+    if aus_matrix is not None:
+        return aus_matrix
+
     stufe = access_level(user)
     if stufe is None:
         return False
@@ -468,6 +598,95 @@ def darf(user, aktion: str, objekt=None, *, schreiben: bool = False) -> bool:
                 aus_rollen,
             )
 
+    return antwort
+
+
+def vorlagen() -> list[dict]:
+    """
+    Die Vorlagen fuer die Matrix.
+
+    Es sind die neun Rollen aus MATRIX, unveraendert. Sie waren als eigenes
+    Rechtemodell gedacht und sind jetzt das, was sie im Alltag ohnehin sind:
+    sinnvolle Ausgangspunkte, die man danach anpasst. Wer "Einrichtungsleitung"
+    waehlt, bekommt deren Zeile - und kann anschliessend einzelne Felder
+    aendern, ohne dass die Vorlage sich beschwert.
+
+    Eine gewaehlte Vorlage wird nicht gespeichert. Gespeichert wird nur, was
+    danach in der Matrix steht. Sonst haette eine Aenderung an MATRIX
+    rueckwirkend die Rechte bestehender Konten verschoben, und zwar
+    unbemerkt.
+    """
+    from django_grp_org.models import Role
+
+    namen = dict(Role.ROLE_CHOICES)
+    liste = []
+    for kennung, zeile in MATRIX.items():
+        liste.append(
+            {
+                "kennung": kennung,
+                "name": namen.get(kennung, kennung),
+                "rechte": {
+                    aktion: zeile.get(aktion, KEIN) for aktion in ALLE_AKTIONEN
+                },
+            }
+        )
+    return liste
+
+
+def matrix_von(user) -> dict[str, int]:
+    """
+    Die gespeicherte Matrix einer Person, oder die ihrer Stufe.
+
+    Ist noch nichts gesetzt, kommt die Zeile der bisherigen Zugriffsstufe
+    zurueck. So sieht die Oberflaeche beim ersten Oeffnen das, was heute
+    tatsaechlich gilt, und nicht eine leere Tabelle, die jeden Rechteentzug
+    wie eine Neuvergabe aussehen laesst.
+    """
+    from .models import Rechtezuweisung
+
+    gesetzt = {
+        z.aktion: z.stufe
+        for z in Rechtezuweisung.objects.filter(user=user)
+        if z.aktion in AKTION_LABEL
+    }
+    if gesetzt:
+        return {aktion: gesetzt.get(aktion, KEIN) for aktion in ALLE_AKTIONEN}
+
+    stufe = STUFE_RECHTE.get(access_level(user), {})
+    return {aktion: stufe.get(aktion, KEIN) for aktion in ALLE_AKTIONEN}
+
+
+def hat_eigene_matrix(user) -> bool:
+    """Ob fuer diese Person ueberhaupt etwas gesetzt ist."""
+    from .models import Rechtezuweisung
+
+    return Rechtezuweisung.objects.filter(user=user).exists()
+
+
+def wirksame_rechte(user) -> dict[str, str]:
+    """
+    Was diese Person tatsaechlich darf, als "kein" / "lesen" / "schreiben".
+
+    Diese Auskunft geht an die Oberflaechen. Sie fragten bisher `is_staff`
+    und rieten damit: `is_staff` ist ein Django-Schalter, `access_level`
+    kommt aus dem Personaldatensatz, und fuer jede Fachkraft mit einem
+    solchen koennen die beiden auseinandergehen. Das Ergebnis war eine
+    Oberflaeche, die Aushilfen das Bearbeiten anbot und Fachkraeften die
+    Fallakte sperrte - in beide Richtungen falsch.
+
+    Gerechnet wird ueber `darf()`, also ueber dieselbe Stelle, die auch den
+    Schreibzugriff entscheidet. Eine zweite Rechnung fuer die Anzeige waere
+    genau der Fehler, der hier behoben wird.
+    """
+    namen = {KEIN: "kein", LESEN: "lesen", SCHREIBEN: "schreiben"}
+    antwort = {}
+    for aktion in ALLE_AKTIONEN:
+        if darf(user, aktion, schreiben=True):
+            antwort[aktion] = namen[SCHREIBEN]
+        elif darf(user, aktion):
+            antwort[aktion] = namen[LESEN]
+        else:
+            antwort[aktion] = namen[KEIN]
     return antwort
 
 

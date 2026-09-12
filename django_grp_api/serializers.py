@@ -685,6 +685,7 @@ class UserDetailedProfileSerializer(serializers.ModelSerializer):
 
     groups_with_permissions = serializers.SerializerMethodField()
     employee = serializers.SerializerMethodField()
+    rechte = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -699,6 +700,7 @@ class UserDetailedProfileSerializer(serializers.ModelSerializer):
             "date_joined",
             "groups_with_permissions",
             "employee",
+            "rechte",
         ]
         read_only_fields = [
             "id",
@@ -750,6 +752,26 @@ class UserDetailedProfileSerializer(serializers.ModelSerializer):
         }
 
 
+    def get_rechte(self, obj) -> dict:
+        """
+        Was diese Person tatsaechlich darf, je Merkmal.
+
+        Damit hoert die Oberflaeche auf zu raten. Sie fragte an 74 Stellen
+        `is_staff` - ein Django-Schalter, waehrend die Entscheidung an
+        `access_level` aus dem Personaldatensatz haengt und jetzt an der
+        Matrix. Fuer jede Fachkraft mit Personaldatensatz konnten die beiden
+        auseinandergehen, und sie taten es: Aushilfen bekamen die volle
+        Protokollbearbeitung angeboten, Fachkraeften blieb die Fallakte
+        gesperrt. In beide Richtungen falsch.
+
+        Gerechnet ueber dieselbe Stelle, die auch den Schreibzugriff
+        entscheidet. Eine zweite Rechnung fuer die Anzeige waere genau der
+        Fehler noch einmal.
+        """
+        from django_grp_backend.rechte import wirksame_rechte
+
+        return wirksame_rechte(obj)
+
 class ProtocolPresenceSerializer(serializers.ModelSerializer):
     """Serializer for ProtocolPresence model."""
 
@@ -780,6 +802,8 @@ class GroupPDFTemplateSerializer(serializers.ModelSerializer):
         model = Group
         fields = ["id", "name", "pdf_template"]
         read_only_fields = ["id", "name"]
+
+
 
 
 class UserDetailSerializer(serializers.ModelSerializer):

@@ -1116,6 +1116,74 @@ class Consent(models.Model):
         }[self.status]
 
 
+class Rechtezuweisung(models.Model):
+    """
+    Ein Merkmal, eine Person, eine Stufe.
+
+    Die Matrix, die ein Admin je Person ausfuellt: fuer Protokolle, Bewohner,
+    Dienstplan und die uebrigen Merkmale jeweils kein Zugriff, Lesen oder
+    Schreiben.
+
+    **Warum eine Zeile je Merkmal und kein JSON-Feld.** Ein Feld mit allem
+    darin liesse sich nicht abfragen ("wer darf Zeitkonten abschliessen?"),
+    nicht mit einer Datenbankbedingung absichern, und das
+    Aenderungsprotokoll wuerde bei jeder Aenderung denselben Klumpen zweimal
+    ablegen. So steht in der Historie, welches Recht sich geaendert hat.
+
+    **Nichts gesetzt heisst nicht nichts erlaubt.** Solange fuer eine Person
+    keine einzige Zeile existiert, entscheidet ihre bisherige Zugriffsstufe
+    weiter. Erst wenn eine Matrix da ist, gilt sie vollstaendig - eine
+    fehlende Zeile heisst dann kein Zugriff. Ohne diesen Unterschied waere
+    entweder die Einfuehrung ein Rechteentzug fuer alle, oder ein Entzug
+    liesse sich nicht von einer Luecke unterscheiden.
+    """
+
+    KEIN = 0
+    LESEN = 1
+    SCHREIBEN = 2
+
+    STUFE_CHOICES = [
+        (KEIN, "Kein Zugriff"),
+        (LESEN, "Lesen"),
+        (SCHREIBEN, "Lesen und schreiben"),
+    ]
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="rechtezuweisungen",
+        verbose_name="Konto",
+    )
+    aktion = models.CharField(
+        max_length=40,
+        verbose_name="Merkmal",
+        help_text="Die Kennung aus rechte.py, etwa doku.protokolle",
+    )
+    stufe = models.PositiveSmallIntegerField(
+        choices=STUFE_CHOICES, default=KEIN, verbose_name="Stufe"
+    )
+
+    geaendert_am = models.DateTimeField(auto_now=True)
+    geaendert_von = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        verbose_name="Geändert von",
+        help_text="Wer die Matrix zuletzt gesetzt hat",
+    )
+
+    class Meta:
+        # Zwei Zeilen zum selben Merkmal waeren zwei Antworten auf dieselbe
+        # Frage, und welche gilt, entschiede die Reihenfolge in der Tabelle.
+        unique_together = [("user", "aktion")]
+        ordering = ["user_id", "aktion"]
+        verbose_name = "Rechtezuweisung"
+        verbose_name_plural = "Rechtezuweisungen"
+
+    def __str__(self) -> str:
+        return f"{self.user.username}: {self.aktion} = {self.get_stufe_display()}"
+
+
 class ZweiterFaktor(models.Model):
     """
     Der zeitbasierte Einmalcode eines Kontos.
