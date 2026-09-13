@@ -328,6 +328,20 @@ class MatrixVergebenTestCase(MatrixBasis):
         )
         self.assertEqual(antwort.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_niemand_nimmt_die_eigene_matrix_zurueck(self):
+        """
+        Dieselbe Regel wie beim Setzen. Zuruecknehmen gibt das Konto an die
+        Zugriffsstufe zurueck - am eigenen Konto waere das ein Weg, eine
+        Beschraenkung loszuwerden, die jemand anders gesetzt hat.
+        """
+        setze(self.leitung, **{rechte.PROTOKOLLE: rechte.LESEN})
+        self.client.force_authenticate(user=self.leitung)
+
+        antwort = self.client.delete(f"/api/v1/rechte/{self.leitung.id}/")
+
+        self.assertEqual(antwort.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(rechte.hat_eigene_matrix(self.leitung))
+
     def test_ein_unbekanntes_merkmal_wird_abgewiesen(self):
         """
         Ein Tippfehler in der Kennung waere sonst ein Recht, das niemand
@@ -413,3 +427,77 @@ class MatrixVergebenTestCase(MatrixBasis):
 
         zeile = Rechtezuweisung.objects.filter(user=self.fachkraft).first()
         self.assertEqual(zeile.geaendert_von, "leitung")
+
+
+class NotausgangTestCase(MatrixBasis):
+    """
+    Der Weg zurueck ueber die Kommandozeile.
+
+    Ohne ihn gab es eine Sackgasse: ein Traeger mit genau einem
+    Verwaltungskonto, dessen Telefon verloren ist, kaeme an keine Stammdaten
+    mehr. Wiederherstellungscodes sind bewusst nicht vorgesehen, und das
+    Zuruecksetzen ueber die Oberflaeche verlangt ein zweites Konto mit
+    eigenem Faktor.
+    """
+
+    def test_der_befehl_entfernt_den_faktor(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        faktor = ZweiterFaktor(user=self.fachkraft, bestaetigt_am=timezone.now())
+        faktor.geheimnis = zweitfaktor.geheimnis_erzeugen()
+        faktor.save()
+
+        ausgabe = StringIO()
+        call_command(
+            "zweitfaktor_zuruecksetzen", "fach", "--ja", stdout=ausgabe
+        )
+
+        self.assertFalse(
+            ZweiterFaktor.objects.filter(user=self.fachkraft).exists()
+        )
+        self.assertIn("entfernt", ausgabe.getvalue())
+
+    def test_ohne_faktor_passiert_nichts(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        ausgabe = StringIO()
+        call_command(
+            "zweitfaktor_zuruecksetzen", "fach", "--ja", stdout=ausgabe
+        )
+        self.assertIn("Nichts zu tun", ausgabe.getvalue())
+
+    def test_ein_unbekanntes_konto_bricht_ab(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+
+        with self.assertRaises(CommandError):
+            call_command("zweitfaktor_zuruecksetzen", "gibtsnicht", "--ja")
+
+    def test_auch_ein_superuser_laesst_sich_zuruecksetzen(self):
+        """
+        Er ist nicht von der Pflicht ausgenommen - der wertvollste Zugang
+        traegt nicht die schwaechste Sicherung. Der Notausgang gilt deshalb
+        gerade fuer ihn.
+        """
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        chef = User.objects.create_user(
+            username="chef", password="testpass123", is_staff=True,
+            is_superuser=True,
+        )
+        faktor = ZweiterFaktor(user=chef, bestaetigt_am=timezone.now())
+        faktor.geheimnis = zweitfaktor.geheimnis_erzeugen()
+        faktor.save()
+
+        self.assertTrue(rechte.zweitfaktor_pflicht(chef))
+
+        call_command(
+            "zweitfaktor_zuruecksetzen", "chef", "--ja", stdout=StringIO()
+        )
+        self.assertFalse(ZweiterFaktor.objects.filter(user=chef).exists())
