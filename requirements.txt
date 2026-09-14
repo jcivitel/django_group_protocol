@@ -42,7 +42,7 @@ prompt_toolkit==3.0.53
 py-vapid==1.9.4
 pycparser==3.0
 pyOpenSSL==26.4.0
-pypdf==6.16.2
+pypdf==6.18.0
 pyRFC3339==2.1.0
 python-dateutil==2.9.0.post0
 python-decouple==3.8
