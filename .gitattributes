@@ -1,0 +1,7 @@
+# Shell-Skripte immer mit LF auschecken, auch unter Windows.
+#
+# Ohne diese Zeile macht core.autocrlf=true aus entry.sh eine CRLF-Datei,
+# der Dockerfile kopiert sie per "COPY ." ins Image, und die sh im Container
+# liest das \r als Teil des Befehls: "entry.sh: line 2: : not found" und
+# KeyError: 'migrate\r'.
+*.sh text eol=lf
