@@ -108,9 +108,17 @@ AKTION_HINWEIS: dict[str, str] = {
     PROTOKOLLE: "Gruppenprotokolle lesen und schreiben, Aufgaben abhaken.",
     BEWOHNER: "Die Bewohnerakte: Stammdaten, Allergien, Medikation, Vorkommnisse.",
     FALLAKTE: "Hilfeplanung, Ziele, Fallkonferenzen, Leistungsnachweis.",
+    # NOCH OHNE WIRKUNG. Es gibt im Datenmodell keinen geschuetzten Vermerk:
+    # `CaseFile`, `HelpPlan`, `HelpGoal` und `CaseMeeting` kennen kein Feld,
+    # das eine Zeile als geschuetzt markiert. Die Matrix fuehrt diese Zeile
+    # also, und kein Endpunkt fragt sie ab.
+    #
+    # Das steht hier und nicht nur in einer Notiz, weil eine Zeile, die man
+    # auf „kein Zugriff" stellen kann, ohne dass sich etwas sperrt, schlimmer
+    # ist als eine fehlende: sie sieht aus wie eine Sperre.
     FALLAKTE_GESCHUETZT: (
-        "Die geschützte Tiefe der Fallakte. Gehört zur Bezugsbetreuung und "
-        "zur Leitung, nicht zum ganzen Team."
+        "Die geschützte Tiefe der Fallakte. Noch ohne Wirkung: geschützte "
+        "Vermerke sind als Datensatz noch nicht gebaut."
     ),
     DIENSTPLAN_BEARBEITEN: "Dienste einteilen und den Plan bearbeiten.",
     DIENSTPLAN_FREIGEBEN: "Einen Plan veröffentlichen. Danach sehen ihn alle.",
@@ -345,13 +353,11 @@ STUFE_RECHTE: dict[str, dict[str, int]] = {
     ADMIN: {aktion: SCHREIBEN for aktion in MATRIX["executive"]},
     SPECIALIST: {
         ORG_STRUKTUR: LESEN,
-        ORG_DIENSTARTEN: SCHREIBEN,
+        ORG_DIENSTARTEN: LESEN,
         ORG_KALENDER: LESEN,
         PERSONAL_STAMMDATEN: LESEN,
         PERSONAL_QUALIFIKATION: LESEN,
-        DIENSTPLAN_BEARBEITEN: SCHREIBEN,
-        DIENSTPLAN_FREIGEBEN: SCHREIBEN,
-        ABWESENHEIT_GENEHMIGEN: SCHREIBEN,
+        DIENSTPLAN_BEARBEITEN: LESEN,
         ZEIT_ERFASSEN: SCHREIBEN,
         PROTOKOLLE: SCHREIBEN,
         BEWOHNER: SCHREIBEN,
@@ -367,7 +373,6 @@ STUFE_RECHTE: dict[str, dict[str, int]] = {
         PERSONAL_STAMMDATEN: LESEN,
         PERSONAL_QUALIFIKATION: LESEN,
         DIENSTPLAN_BEARBEITEN: LESEN,
-        ABWESENHEIT_GENEHMIGEN: LESEN,
         ZEIT_ERFASSEN: SCHREIBEN,
         PROTOKOLLE: LESEN,
         BEWOHNER: LESEN,
@@ -377,6 +382,30 @@ STUFE_RECHTE: dict[str, dict[str, int]] = {
         NACHWEISE: LESEN,
     },
 }
+
+# Vier Zeilen standen hier zu hoch, und sie waren harmlos, solange niemand
+# sie las: die Endpunkte fragten `is_staff`, nicht diese Tabelle. Mit der
+# durchgesetzten Matrix ist sie der Rueckfall fuer jedes Konto ohne eigene
+# Zeilen - also heute fuer alle. Was hier zu viel steht, wird damit zu einem
+# Recht, das niemand vergeben hat:
+#
+#   ORG_DIENSTARTEN        stand auf schreiben. `require_staff` sperrte es.
+#   DIENSTPLAN_BEARBEITEN  stand auf schreiben. Dasselbe.
+#   DIENSTPLAN_FREIGEBEN   stand bei der Fachkraft. Nie erlaubt gewesen.
+#   ABWESENHEIT_GENEHMIGEN stand bei Fachkraft und Aushilfe. Nie erlaubt -
+#                          ueber Antraege entscheidet die Leitung, und die
+#                          Zeile entscheidet jetzt auch, wer fremde
+#                          Abwesenheiten ueberhaupt sieht. Krankheitstage
+#                          sind Gesundheitsdaten (Art. 9 DSGVO).
+#
+# Eigene Antraege, eigene Wuensche und die eigene Zeitbuchung haengen an
+# keiner dieser Zeilen. Sie gehoeren jedem Konto mit Personaldatensatz, und
+# die Endpunkte pruefen dafuer den Datensatz und kein Merkmal.
+#
+# `ZEIT_ERFASSEN: SCHREIBEN` bleibt bei der Aushilfe und ist damit die eine
+# Zeile, die mehr erlaubt als bisher: `WriteNeedsRole` sperrte ihr jede
+# Schreiboperation, also auch das Buchen der eigenen Stunden. Eine Aushilfe,
+# die ihre Zeit nicht buchen kann, war ein Fehler und keine Regel.
 
 
 def _quelle() -> str:
@@ -482,22 +511,29 @@ def _rolle_deckt(rolle, ebenen) -> bool:
 
 def generalschluessel(user) -> bool:
     """
-    Konten, die immer alles dürfen.
+    Konten, die immer alles dürfen: nur der Superuser.
 
-    Superuser und `is_staff`. Bewusst nicht abschaffbar: eine Rechteumstellung
-    darf niemanden aussperren, der die Anlage betreut, und wer als
-    Mitarbeitendes Konto gefuehrt wird, traegt ohnehin die Verantwortung fuer
-    das Ganze.
+    **Hier stand auch `is_staff`, und das machte die Rechtematrix
+    wirkungslos.** Der Grund ist ein Signal in `django_grp_org.models`: es
+    haelt `is_staff` an `access_level == "admin"` fest, damit der
+    Django-Admin und die Anwendung nicht auseinanderlaufen. Damit trug jedes
+    Konto der Stufe „Mitarbeiter" den Generalschluessel - also genau die
+    Konten, die man mit der Matrix einschraenken will. Wer einer
+    Bereichsleitung die Fallakte nahm, nahm ihr einen Knopf und kein Recht.
 
-    Praktisch ist das auch der Notausgang. Wer den Schalter auf `rollen`
-    stellt und dabei eine Zuweisung vergisst, kommt ueber ein solches Konto
-    wieder hinein - ohne Datenbankzugriff.
+    Schlimmer war der Weg dorthin: wer Personal pflegen darf, setzt
+    `access_level`. Aus „darf Personal fuehren" wurde damit in zwei
+    Schritten „darf alles".
+
+    Der Notausgang bleibt. Ein Superuser existiert in jeder Anlage, und er
+    ist der Weg zurueck, wenn sich jemand mit der Matrix selbst aussperrt -
+    ohne Datenbankzugriff. Dass dieses eine Konto nicht beschnitten werden
+    kann, steht im Hilfe-Artikel zur Matrix, und fuer genau dieses Konto ist
+    der zweite Faktor Pflicht.
     """
     if user is None or not getattr(user, "is_authenticated", False):
         return False
-    return bool(
-        getattr(user, "is_superuser", False) or getattr(user, "is_staff", False)
-    )
+    return bool(getattr(user, "is_superuser", False))
 
 
 def _aus_matrix(user, aktion, noetig):
@@ -701,6 +737,24 @@ def verwaltet(user) -> bool:
     return darf(user, ORG_STRUKTUR, schreiben=True)
 
 
+#: Die Zeilen, die ein Konto zu einem verwaltenden machen. Schreibrecht auf
+#: eine davon genuegt.
+VERWALTENDE_RECHTE = (ORG_STRUKTUR, PERSONAL_STAMMDATEN, PERSONAL_ROLLEN)
+
+
+def verwaltungsrecht(user) -> bool:
+    """
+    Darf dieses Konto irgendetwas Verwaltendes ändern?
+
+    Getrennt von `verwaltet()`, und der Unterschied ist nicht kosmetisch.
+    `verwaltet()` beantwortet eine Frage des Geltungsbereichs - wer sieht
+    alle Gruppen des Traegers - und haengt deshalb an einer Zeile. Diese
+    Funktion beantwortet, ob jemand an den Schaltstellen der Anlage
+    schreiben darf, und das koennen drei verschiedene sein.
+    """
+    return any(darf(user, aktion, schreiben=True) for aktion in VERWALTENDE_RECHTE)
+
+
 def zweitfaktor_pflicht(user) -> bool:
     """
     Muss dieses Konto einen zweiten Faktor haben?
@@ -709,13 +763,22 @@ def zweitfaktor_pflicht(user) -> bool:
     Konten, die verwalten duerfen. Das sind genau die, mit denen sich am
     meisten anrichten laesst - Personal, Organisation, Rollen.
 
-    Die Regel haengt an derselben Zeile wie `verwaltet()`, und das ist die
-    Kopplung, auf die es ankommt: es gibt keine Wiederherstellungscodes, die
-    Verwaltung setzt den Faktor zurueck. Jedes Konto, das zuruecksetzen darf,
-    ist damit ein Weg am Faktor vorbei. Waere die Pflicht anders geschnitten
-    als das Recht zum Zuruecksetzen, bliebe genau dort eine Luecke.
+    Die Kopplung, auf die es ankommt: es gibt keine Wiederherstellungscodes,
+    die Verwaltung setzt den Faktor zurueck. Jedes Konto, das zuruecksetzen
+    darf, ist damit ein Weg am Faktor vorbei. Waere die Pflicht anders
+    geschnitten als das Recht zum Zuruecksetzen, bliebe genau dort eine
+    Luecke.
+
+    **Hier stand `verwaltet()`, also nur die Traegerstruktur.** Genau dort lag
+    die Luecke. Eine Einrichtungsleitung hat nach der Vorlage *Organisation:
+    lesen*, aber *Rechte vergeben: schreiben* - sie konnte die Matrix jedes
+    Kontos setzen, und weil sie keine Pflicht hatte, gab `zweitfaktor_erfuellt`
+    fuer sie True zurueck. Ohne Faktor, ohne Hindernis.
+
+    Der Hilfe-Artikel sagte von Anfang an das Richtige: „alle, die Stammdaten,
+    Personal oder Rechte ändern können". Der Code sagte eines von dreien.
     """
-    return verwaltet(user)
+    return verwaltungsrecht(user)
 
 
 def zweitfaktor_erfuellt(user) -> bool:

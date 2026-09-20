@@ -1,9 +1,22 @@
 """
 API für Organisationsstruktur und Personalstammdaten (Phasen 0 und 1).
 
-Lesen darf jede angemeldete Person, schreiben nur Personal (is_staff).
-Personaldaten sind sensibel: wer kein Personal ist, sieht von anderen nur
+Lesen darf jede angemeldete Person, schreiben wer das Merkmal dazu hat.
+Personaldaten sind sensibel: wer kein Personal führt, sieht von anderen nur
 Name und Qualifikation, nicht Vertrag oder Geburtsdatum.
+
+**Bis zum 13. September 2026 hing jeder Schreibzugriff hier an derselben
+Frage:** `is_admin()`, also am Schreibrecht auf die Trägerstruktur. Sechzehn
+ViewSets, ein Schlüssel. Die Rechtematrix führt für diesen Bereich aber sechs
+Zeilen — Personal, Qualifikationen, Rechte vergeben, Organisation,
+Dienstarten, Feiertage — und beide Richtungen gingen schief:
+
+  * Eine Personalsachbearbeitung mit *Personal: schreiben* und *Organisation:
+    kein Zugriff* konnte keinen Vertrag eintragen.
+  * Wer *Organisation: schreiben* hatte, durfte Personaldatensätze, Verträge
+    und Rollenzuweisungen ändern, ohne dass eine dieser Zeilen gesetzt war.
+
+Jetzt nennt jedes ViewSet sein Merkmal in `recht`.
 """
 
 from datetime import date
@@ -19,7 +32,8 @@ from rest_framework.views import APIView
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q
 
-from django_grp_backend.access import WriteNeedsRole, is_admin
+from django_grp_backend import rechte
+from django_grp_backend.access import WriteNeedsRole
 from django_grp_backend.functions import upload_too_large
 from .audit import AuditEvent, klartext
 from .holiday_service import jahr_anlegen
@@ -46,20 +60,40 @@ from .models import (
 
 
 class StaffWritableViewSet(viewsets.ModelViewSet):
-    """Lesen für alle Angemeldeten, Ändern nur für Personal."""
+    """
+    Lesen für alle Angemeldeten, Ändern wer das Merkmal dazu hat.
+
+    Jede Unterklasse setzt `recht`. `WriteNeedsRole` prüft es schon, bevor
+    eine Methode läuft; `_require_staff` bleibt als zweite Schranke für die
+    Unterklassen, die selbst speichern, und ist die Stelle, an der der zweite
+    Faktor verlangt wird.
+    """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    # Jede Unterklasse setzt ihr Merkmal. `None` heisst hier nicht „offen":
+    # `_require_staff` lehnt dann ab, und das ist die Richtung, in der ein
+    # vergessenes `recht` auffaellt, ohne Schaden anzurichten.
+    recht = None
 
     def _require_staff(self):
-        if not is_admin(self.request.user):
-            raise PermissionDenied("Nur die Verwaltung darf Stammdaten ändern.")
+        from django_grp_backend.rechte import AKTION_LABEL, darf, zweitfaktor_erfuellt
+
+        merkmal = getattr(self, "recht", None)
+        if merkmal is None:
+            raise PermissionDenied("Für diesen Endpunkt ist kein Recht hinterlegt.")
+
+        if not darf(self.request.user, merkmal, schreiben=True):
+            name = AKTION_LABEL.get(merkmal, merkmal)
+            raise PermissionDenied(f"Dafür fehlt das Recht „{name}“.")
 
         # Die eine Stelle, an der die Pflicht zum zweiten Faktor wirklich
         # greift. Die Anmeldung laesst jeden durch - sonst sperrte die
         # Einfuehrung am ersten Tag die ganze Verwaltung aus. Zu bleibt genau
         # das, wofuer der Faktor gedacht ist: Stammdaten, Personal, Rollen.
-        from django_grp_backend.rechte import zweitfaktor_erfuellt
-
+        #
+        # `zweitfaktor_erfuellt` gibt fuer Konten ohne Pflicht True zurueck.
+        # Die Pruefung steht deshalb an jedem Stammdatenzugriff und nicht nur
+        # an den verwaltenden: wer keine Pflicht hat, merkt nichts davon.
         if not zweitfaktor_erfuellt(self.request.user):
             raise PermissionDenied(
                 "Für Konten mit Verwaltungsrechten ist der zweite Faktor "
@@ -451,7 +485,13 @@ class EmployeeSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         user = getattr(request, "user", None)
 
-        if user and not user.is_staff:
+        # Geburtsdatum, Anschrift, Entgeltgruppe. Wer Personal führt, sieht
+        # sie; alle anderen nur die eigenen. Vorher entschied das `is_staff`,
+        # und damit sah eine Bereichsleitung ohne diesen Schalter nicht
+        # einmal die Anschrift ihrer eigenen Mitarbeitenden.
+        from django_grp_backend.rechte import PERSONAL_STAMMDATEN
+
+        if user and not rechte.darf(user, PERSONAL_STAMMDATEN, schreiben=True):
             own = instance.user_id == user.id
             if not own:
                 for field in self.SENSITIVE_FIELDS:
@@ -580,6 +620,7 @@ class PositionSerializer(serializers.ModelSerializer):
 
 class ProviderViewSet(StaffWritableViewSet):
     serializer_class = ProviderSerializer
+    recht = rechte.ORG_STRUKTUR
 
     def get_queryset(self):
         return tenant_providers(self.request.user)
@@ -587,6 +628,7 @@ class ProviderViewSet(StaffWritableViewSet):
 
 class SiteViewSet(StaffWritableViewSet):
     serializer_class = SiteSerializer
+    recht = rechte.ORG_STRUKTUR
 
     def get_queryset(self):
         return limit_to_tenant(
@@ -596,6 +638,7 @@ class SiteViewSet(StaffWritableViewSet):
 
 class FacilityViewSet(StaffWritableViewSet):
     serializer_class = FacilitySerializer
+    recht = rechte.ORG_STRUKTUR
 
     def get_queryset(self):
         return limit_to_tenant(
@@ -607,6 +650,7 @@ class FacilityViewSet(StaffWritableViewSet):
 
 class DepartmentViewSet(StaffWritableViewSet):
     serializer_class = DepartmentSerializer
+    recht = rechte.ORG_STRUKTUR
 
     def get_queryset(self):
         return limit_to_tenant(
@@ -620,6 +664,7 @@ class DepartmentViewSet(StaffWritableViewSet):
 
 class QualificationViewSet(StaffWritableViewSet):
     serializer_class = QualificationSerializer
+    recht = rechte.PERSONAL_QUALIFIKATION
     queryset = Qualification.objects.all()
 
 
@@ -648,6 +693,7 @@ class HolidayViewSet(StaffWritableViewSet):
     """
 
     serializer_class = HolidaySerializer
+    recht = rechte.ORG_KALENDER
 
     def get_queryset(self):
         queryset = limit_to_tenant(Holiday.objects.all(), self.request.user)
@@ -674,6 +720,7 @@ class HolidayGenerateView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.ORG_KALENDER
 
     def get(self, request):
         """Die Auswahlliste der Bundeslaender - fuer das Formular."""
@@ -682,8 +729,6 @@ class HolidayGenerateView(APIView):
         )
 
     def post(self, request):
-        if not is_admin(request.user):
-            raise PermissionDenied("Nur die Verwaltung darf Feiertage anlegen.")
 
         provider = Provider.objects.first()
         if provider is None:
@@ -710,6 +755,7 @@ class HolidayGenerateView(APIView):
 
 
 class PayGradeViewSet(StaffWritableViewSet):
+    recht = rechte.ORG_STRUKTUR
     """
     Entgeltgruppen des Traegers.
 
@@ -726,6 +772,7 @@ class PayGradeViewSet(StaffWritableViewSet):
 
 
 class PayGradeStepViewSet(StaffWritableViewSet):
+    recht = rechte.ORG_STRUKTUR
     """Stufen mit Betrag. Je Tarifrunde kommt eine Zeile dazu."""
 
     serializer_class = PayGradeStepSerializer
@@ -739,6 +786,7 @@ class PayGradeStepViewSet(StaffWritableViewSet):
 
 
 class SurchargeRateViewSet(StaffWritableViewSet):
+    recht = rechte.ORG_STRUKTUR
     """Zuschlagssaetze. Ohne Satz bleibt es bei den Stunden."""
 
     serializer_class = SurchargeRateSerializer
@@ -749,6 +797,7 @@ class SurchargeRateViewSet(StaffWritableViewSet):
 
 class WorkTimeModelViewSet(StaffWritableViewSet):
     serializer_class = WorkTimeModelSerializer
+    recht = rechte.ORG_STRUKTUR
 
     def get_queryset(self):
         return limit_to_tenant(WorkTimeModel.objects.all(), self.request.user)
@@ -756,6 +805,7 @@ class WorkTimeModelViewSet(StaffWritableViewSet):
 
 class EmployeeViewSet(StaffWritableViewSet):
     serializer_class = EmployeeSerializer
+    recht = rechte.PERSONAL_STAMMDATEN
 
     def get_queryset(self):
         queryset = limit_to_tenant(
@@ -771,17 +821,20 @@ class EmployeeViewSet(StaffWritableViewSet):
 
 class ContractViewSet(StaffWritableViewSet):
     serializer_class = ContractSerializer
+    recht = rechte.PERSONAL_STAMMDATEN
 
     def get_queryset(self):
-        # Verträge sieht nur Personal, sonst ausschließlich den eigenen.
+        # Verträge sieht, wer Personal führt - sonst ausschließlich den
+        # eigenen. Ein Vertrag nennt Entgeltgruppe und Stundenumfang.
         queryset = Contract.objects.select_related("employee")
-        if self.request.user.is_staff:
+        if rechte.darf(self.request.user, rechte.PERSONAL_STAMMDATEN, schreiben=True):
             return queryset
         return queryset.filter(employee__user=self.request.user)
 
 
 class EmployeeQualificationViewSet(StaffWritableViewSet):
     serializer_class = EmployeeQualificationSerializer
+    recht = rechte.PERSONAL_QUALIFIKATION
     queryset = EmployeeQualification.objects.select_related("qualification", "employee")
 
 
@@ -795,6 +848,11 @@ class RoleViewSet(StaffWritableViewSet):
     """
 
     serializer_class = RoleSerializer
+    # Dasselbe Merkmal wie die Rechtematrix, und das ist kein Zufall: unter
+    # `RECHTE_QUELLE=rollen` entscheiden diese Zuweisungen, was jemand darf.
+    # Sie unter „Organisation" zu führen hätte bedeutet, dass Rechtevergabe
+    # an der Trägerstruktur hängt - und am zweiten Faktor vorbeiläuft.
+    recht = rechte.PERSONAL_ROLLEN
     queryset = Role.objects.select_related(
         "employee", "provider", "site", "facility", "department", "case_file"
     )
@@ -814,6 +872,7 @@ class RoleViewSet(StaffWritableViewSet):
 
 class PositionViewSet(StaffWritableViewSet):
     serializer_class = PositionSerializer
+    recht = rechte.ORG_STRUKTUR
 
     def get_queryset(self):
         queryset = limit_to_tenant(
@@ -831,6 +890,7 @@ class PositionViewSet(StaffWritableViewSet):
 
 class PositionAssignmentViewSet(StaffWritableViewSet):
     serializer_class = PositionAssignmentSerializer
+    recht = rechte.PERSONAL_STAMMDATEN
     queryset = PositionAssignment.objects.select_related("employee", "position")
 
 
@@ -846,6 +906,9 @@ class EmployeePictureView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    # Das eigene Foto darf jeder tauschen, ein fremdes nur wer Personal
+    # führt. Deshalb kein Merkmal an der Klasse, sondern unten je Anfrage.
+    recht = None
 
     def _employee(self, request, employee_id: int):
         return (
@@ -854,13 +917,19 @@ class EmployeePictureView(APIView):
             .first()
         )
 
+    def _darf(self, request, employee) -> bool:
+        if employee.user_id == request.user.id:
+            return True
+        return rechte.darf(request.user, rechte.PERSONAL_STAMMDATEN, schreiben=True)
+
     def post(self, request, employee_id: int):
         employee = self._employee(request, employee_id)
         if employee is None:
             return Response({"error": "Person nicht gefunden."}, status=404)
-        if not is_admin(request.user) and employee.user_id != request.user.id:
+        if not self._darf(request, employee):
             return Response(
-                {"error": "Nur die Verwaltung oder die Person selbst."}, status=403
+                {"error": "Nur die Personalverwaltung oder die Person selbst."},
+                status=403,
             )
 
         datei = request.FILES.get("picture")
@@ -888,9 +957,10 @@ class EmployeePictureView(APIView):
         employee = self._employee(request, employee_id)
         if employee is None:
             return Response({"error": "Person nicht gefunden."}, status=404)
-        if not is_admin(request.user) and employee.user_id != request.user.id:
+        if not self._darf(request, employee):
             return Response(
-                {"error": "Nur die Verwaltung oder die Person selbst."}, status=403
+                {"error": "Nur die Personalverwaltung oder die Person selbst."},
+                status=403,
             )
 
         if not employee.picture:
@@ -908,9 +978,13 @@ class StaffingPlanView(APIView):
 
     Fasst zusammen, was der Roadmap-Punkt „freie, besetzte und überbesetzte
     Stellen" verlangt, ohne dass die Oberfläche selbst rechnen muss.
+
+    Nennt je Stelle die besetzende Person. Deshalb am Lesen der
+    Personalstammdaten und nicht fuer jeden Angemeldeten.
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht_lesen = rechte.PERSONAL_STAMMDATEN
 
     def get(self, request):
         departments = limit_to_tenant(
@@ -987,17 +1061,22 @@ class AuditEventViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Änderungsprotokoll sensibler Stammdaten.
 
-    Nur lesbar und nur für Personal: ein Protokoll, das sich ändern lässt,
-    ist keins.
+    Nur lesbar: ein Protokoll, das sich ändern lässt, ist keins.
+
+    Und nur für Konten mit dem Merkmal *Änderungsprotokoll*. Vorher stand
+    hier `is_staff` im `get_queryset` — die leere Liste statt eines 403. Das
+    sah aus wie „noch nichts passiert" und war „du darfst das nicht sehen":
+    der Unterschied, an dem man im Ernstfall eine Stunde verliert.
+
+    Das Protokoll nennt, wer wann welchen Datensatz geändert hat, mit Namen.
+    Es ist damit selbst eine Personaldatenquelle.
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = AuditEventSerializer
+    recht_lesen = rechte.AENDERUNGSPROTOKOLL
 
     def get_queryset(self):
-        if not self.request.user.is_staff:
-            return AuditEvent.objects.none()
-
         queryset = AuditEvent.objects.all()
         model = self.request.query_params.get("art")
         if model:
@@ -1040,9 +1119,6 @@ class AuditEventViewSet(viewsets.ReadOnlyModelViewSet):
         Damit kann die Oberflaeche einen Filter anbieten, ohne die Liste der
         beobachteten Modelle noch einmal zu fuehren.
         """
-        if not request.user.is_staff:
-            return Response([], status=status.HTTP_200_OK)
-
         pfade = (
             AuditEvent.objects.order_by()
             .values_list("model", flat=True)

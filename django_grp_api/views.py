@@ -18,6 +18,7 @@ from rest_framework.views import APIView
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
 from .guards import ProtokollGesperrt, protokoll_fuer, schreibbares_protokoll
+from django_grp_backend import rechte
 from django_grp_backend.access import WriteNeedsRole, is_admin, may_read_only
 from django_grp_backend.functions import upload_too_large
 from django_grp_backend.models import medikationsuebersicht
@@ -245,6 +246,7 @@ class LogoutView(APIView):
 
 class ProtocolViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.PROTOKOLLE
 
     def get_serializer_class(self):
         """Use different serializers for list vs detail."""
@@ -279,10 +281,15 @@ class GroupViewSet(viewsets.ModelViewSet):
     Bewohner und alle Protokolle der Gruppe (on_delete=CASCADE) - ein
     Fehlgriff, der sich ueber die Oberflaeche nicht rueckgaengig machen
     laesst. Lesen bleibt fuer alle Mitglieder offen.
+
+    Eine Gruppe ist ein Stueck Organisationsstruktur - an ihr haengt ein
+    Bereich, an dem Mindestbesetzung und Fachkraftquote haengen. Deshalb
+    dieselbe Zeile der Matrix wie Traeger, Standort und Bereich.
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = GroupSerializer
+    recht = rechte.ORG_STRUKTUR
 
     def get_queryset(self):
         """Filter groups by user membership or staff status."""
@@ -291,29 +298,16 @@ class GroupViewSet(viewsets.ModelViewSet):
         # sonst eine Abfrage je Gruppe.
         return Group.objects.for_user(user).prefetch_related("resident_set")
 
-    def _require_admin(self):
-        if not is_admin(self.request.user):
-            raise PermissionDenied(
-                "Gruppen anlegen, ändern und löschen ist der Verwaltung "
-                "vorbehalten."
-            )
-
-    def perform_create(self, serializer):
-        self._require_admin()
-        serializer.save()
-
-    def perform_update(self, serializer: GroupSerializer) -> None:
-        self._require_admin()
-        serializer.save()
-
-    def perform_destroy(self, instance):
-        self._require_admin()
-        instance.delete()
+    # Die Pruefung stand hier dreimal als `_require_admin()`. Sie steht jetzt
+    # einmal als `recht` oben: `WriteNeedsRole` laeuft vor jeder dieser
+    # Methoden, und eine Pruefung, die man an drei Stellen wiederholt, ist
+    # eine, die man an der vierten vergisst.
 
 
 class ResidentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ResidentSerializer
+    recht = rechte.BEWOHNER
 
     def get_queryset(self):
         """Filter residents by user group membership or staff status."""
@@ -334,9 +328,14 @@ class ResidentScopedViewSet(viewsets.ModelViewSet):
     Erledigt einmal, was Kontakte, Allergien und Einwilligungen gleichermassen
     brauchen: Bewohner aus der URL holen und pruefen, ob der Benutzer ihn
     ueberhaupt sehen darf.
+
+    Allergien, Einwilligungen, Medikation, Taschengeld: alles Bewohnerakte.
+    Deshalb ein Merkmal fuer alle Unterklassen, und keins davon haengt mehr
+    am Recht auf Protokolle.
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.BEWOHNER
     model = None
 
     def get_resident(self):
@@ -439,6 +438,8 @@ class MedicationAdministrationViewSet(
     laesst sich nicht mitschicken.
     """
 
+    recht = rechte.BEWOHNER
+
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = MedicationAdministrationSerializer
 
@@ -514,6 +515,7 @@ class IncidentViewSet(viewsets.ModelViewSet):
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = IncidentSerializer
+    recht = rechte.BEWOHNER
 
     def get_queryset(self):
         gruppen = Group.objects.for_user(self.request.user)
@@ -541,6 +543,7 @@ class ResidentContactViewSet(viewsets.ModelViewSet):
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ResidentContactSerializer
+    recht = rechte.BEWOHNER
 
     def get_resident(self):
         """Bewohner aus der URL, sofern der Benutzer darauf zugreifen darf."""
@@ -573,6 +576,7 @@ class ProtocolScopedViewSet(viewsets.ModelViewSet):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.PROTOKOLLE
     model = None
 
     def get_protocol(self):
@@ -662,6 +666,8 @@ class TodoCollectionView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.PROTOKOLLE
+    recht_lesen = rechte.PROTOKOLLE
 
     VORGABE_ZURUECK = 90
     VORGABE_VORAUS = 180
@@ -734,6 +740,8 @@ class FaelligeGabenView(APIView):
     sonst zu jeder Stunde als ueberfaellig in der Liste. Sie gehoert auf die
     Seite der Bewohnerin, wo die Bedingung danebensteht.
     """
+
+    recht_lesen = rechte.BEWOHNER
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
 
@@ -842,11 +850,13 @@ class ProtocolTemplateViewSet(viewsets.ModelViewSet):
     Protokollvorlagen (Protokolltypen).
 
     Sichtbar sind traegerweite Vorlagen (ohne Gruppe) und Vorlagen der eigenen
-    Gruppen. Anlegen und Aendern bleibt dem Personal vorbehalten.
+    Gruppen. Anlegen und Aendern braucht das Schreibrecht auf Protokolle: eine
+    Vorlage ist ein Protokolltyp mit vorbereiteter Tagesordnung.
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ProtocolTemplateSerializer
+    recht = rechte.PROTOKOLLE
 
     def get_queryset(self):
         user = self.request.user
@@ -857,25 +867,9 @@ class ProtocolTemplateViewSet(viewsets.ModelViewSet):
             Q(group__isnull=True) | Q(group__group_members=user)
         ).distinct()
 
-    def _require_staff(self):
-        # PermissionDenied statt ValidationError: fehlende Rechte sind 403,
-        # nicht 400.
-        if not is_admin(self.request.user):
-            raise PermissionDenied(
-                "Nur Mitarbeitende duerfen Vorlagen anlegen oder aendern."
-            )
-
-    def perform_create(self, serializer):
-        self._require_staff()
-        serializer.save()
-
-    def perform_update(self, serializer):
-        self._require_staff()
-        serializer.save()
-
-    def perform_destroy(self, instance):
-        self._require_staff()
-        instance.delete()
+    # `_require_staff` stand hier dreimal und fragte `is_admin`. Das Merkmal
+    # oben prueft `WriteNeedsRole` vor jeder veraendernden Methode.
+    pass
 
 
 class ProtocolPresenceUpdateView(APIView):
@@ -886,6 +880,7 @@ class ProtocolPresenceUpdateView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.PROTOKOLLE
 
     def post(self, request):
         protocol = schreibbares_protokoll(request.user, request.data.get("protocol"))
@@ -930,6 +925,7 @@ class ItemValuesUpdateView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.PROTOKOLLE
 
     def post(self, request):
         serializer = ItemSerializer(data=request.data)
@@ -1021,6 +1017,9 @@ class MentionAutocompleteView(APIView):
     """Bewohner der Protokollgruppe fuer die @-Erwaehnung."""
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    # Nennt Namen von Bewohnern. Wer die Akte nicht lesen darf, braucht die
+    # Liste auch nicht zum Tippen.
+    recht_lesen = rechte.BEWOHNER
 
     def get(self, request):
         protocol_id = request.query_params.get("protocol_id")
@@ -1119,7 +1118,8 @@ class ResidentMentionsView(APIView):
     Protokoll einsetzt. Gross- und Kleinschreibung spielt keine Rolle.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht_lesen = rechte.BEWOHNER
 
     # So viele Treffer kommen hoechstens zurueck. Eine Akte, die seit drei
     # Jahren laeuft, haette sonst Hunderte - und niemand liest sie.
@@ -1188,6 +1188,7 @@ class RotateImageView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.BEWOHNER
 
     def post(self, request, resident_id: int | None = None):
         richtung = request.data.get("direction")
@@ -1278,6 +1279,10 @@ class UserProfileView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    # Das eigene Profil. Kein Merkmal: der Endpunkt kennt nur `request.user`
+    # und nimmt keine fremde Nummer an.
+    recht = None
+    recht_lesen = None
 
     def get(self, request):
         serializer = UserProfileSerializer(request.user, context={"request": request})
@@ -1331,6 +1336,10 @@ class UserMeView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    # Das eigene Konto samt seiner Rechte. Ohne diesen Endpunkt wuesste die
+    # Oberflaeche nicht, welche Knoepfe sie zeichnen darf - er darf deshalb an
+    # keinem Merkmal haengen.
+    recht_lesen = None
 
     def get(self, request):
         """Get detailed user profile with group permissions and resident counts."""
@@ -1350,6 +1359,7 @@ class ResidentPictureView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht_lesen = rechte.BEWOHNER
 
     def get(self, request, resident_id: int):
         try:
@@ -1420,6 +1430,7 @@ class ResidentPictureUploadView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.BEWOHNER
 
     def post(self, request, resident_id: int):
         try:
@@ -1431,7 +1442,9 @@ class ResidentPictureUploadView(APIView):
                     {"error": "Resident not found"}, status=status.HTTP_404_NOT_FOUND
                 )
 
-            # Check access: user must be staff or member of resident's group
+            # Das Merkmal hat `WriteNeedsRole` schon geprueft. Hier geht es
+            # um den Ort: die eigene Gruppe, oder die Verwaltung, die alle
+            # sieht.
             is_member = resident.group.group_members.filter(id=request.user.id).exists()
             if not is_member and not is_admin(request.user):
                 return Response(
@@ -1507,6 +1520,8 @@ class GroupPDFTemplateView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    # Die Briefvorlage, auf der die Protokolle der Gruppe gedruckt werden.
+    recht = rechte.PROTOKOLLE
 
     def post(self, request, group_id: int):
         try:
@@ -1615,6 +1630,8 @@ class ProtocolExportedFileView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.PROTOKOLLE
+    recht_lesen = rechte.PROTOKOLLE
 
     def get(self, request, protocol_id: int):
         protocol = protokoll_fuer(request.user, protocol_id)
@@ -1703,6 +1720,7 @@ class ProtocolPresenceListView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht_lesen = rechte.PROTOKOLLE
 
     def get(self, request, protocol_id: int):
         protocol = protokoll_fuer(request.user, protocol_id)
@@ -1737,19 +1755,16 @@ class AdminUserListView(APIView):
     ]
 
     Access Control:
-    - Staff only (is_staff == true)
+    - Das Merkmal „Personal": ein Konto ist ein Personaldatensatz mit
+      Anmeldung, und wer die Liste sieht, sieht jede Person im Haus.
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.PERSONAL_STAMMDATEN
+    recht_lesen = rechte.PERSONAL_STAMMDATEN
 
     def get(self, request):
-        """List all users (staff only)."""
-        if not is_admin(request.user):
-            return Response(
-                {"error": "Sie haben keine Berechtigung, um diese Seite zu sehen."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        """List all users."""
         try:
             users = User.objects.all().order_by("first_name", "last_name")
             serializer = UserDetailSerializer(
@@ -1760,22 +1775,49 @@ class AdminUserListView(APIView):
             return serverfehler(self.__class__.__name__, fehler)
 
     def post(self, request):
-        """Create a new user (staff only)."""
-        if not is_admin(request.user):
-            return Response(
-                {
-                    "error": "Sie haben keine Berechtigung, um diese Aktion durchzuführen."
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        """Ein neues Konto anlegen."""
         try:
             username = request.data.get("username")
             email = request.data.get("email")
             first_name = request.data.get("first_name", "")
             last_name = request.data.get("last_name", "")
             password = request.data.get("password")
-            is_staff = request.data.get("is_staff", False)
+            is_staff = bool(request.data.get("is_staff", False))
+
+            # `is_staff` ist eine Rechtevergabe und kein Stammdatum.
+            #
+            # Ohne Personaldatensatz leitet `access_level()` die Stufe aus
+            # diesem Schalter ab: mit ihm „Mitarbeiter", also in der
+            # Rueckfalltabelle jedes der achtzehn Merkmale auf schreiben. Wer
+            # nur Personal fuehren darf, koennte sich damit in zwei Schritten
+            # ein Konto mit allen Rechten bauen - ein neues anlegen und sich
+            # anmelden.
+            #
+            # Deshalb dieselbe Huerde wie fuer die Rechtematrix selbst:
+            # „Rechte vergeben" und ein eingerichteter zweiter Faktor.
+            if is_staff:
+                from django_grp_backend.rechte import (
+                    PERSONAL_ROLLEN,
+                    darf,
+                    zweitfaktor_erfuellt,
+                )
+
+                if not darf(request.user, PERSONAL_ROLLEN, schreiben=True):
+                    return Response(
+                        {
+                            "error": "Ein Konto mit Verwaltungsrechten anzulegen "
+                            "braucht das Recht „Rechte vergeben“."
+                        },
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+                if not zweitfaktor_erfuellt(request.user):
+                    return Response(
+                        {
+                            "error": "Für diesen Vorgang ist der zweite Faktor "
+                            "Pflicht. Bitte zuerst unter Profil einrichten."
+                        },
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
 
             # Validation
             if not username or not password:
@@ -1814,10 +1856,12 @@ class AdminUserDetailView(APIView):
     GET/PUT/DELETE /api/v1/admin/users/{user_id}/
 
     Access Control:
-    - Staff only (is_staff == true)
+    - Das Merkmal „Personal", wie bei der Liste.
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.PERSONAL_STAMMDATEN
+    recht_lesen = rechte.PERSONAL_STAMMDATEN
 
     def _get_user_or_404(self, user_id: int):
         """Helper to get user or return 404."""
@@ -1827,13 +1871,7 @@ class AdminUserDetailView(APIView):
             return None
 
     def get(self, request, user_id: int):
-        """Get user details (staff only)."""
-        if not is_admin(request.user):
-            return Response(
-                {"error": "Sie haben keine Berechtigung."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        """Get user details."""
         user = self._get_user_or_404(user_id)
         if not user:
             return Response(
@@ -1870,13 +1908,7 @@ class AdminUserDetailView(APIView):
         )
 
     def put(self, request, user_id: int):
-        """Update user details (staff only)."""
-        if not is_admin(request.user):
-            return Response(
-                {"error": "Sie haben keine Berechtigung."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        """Update user details."""
         user = self._get_user_or_404(user_id)
         if not user:
             return Response(
@@ -1935,13 +1967,7 @@ class AdminUserDetailView(APIView):
             return serverfehler(self.__class__.__name__, fehler)
 
     def delete(self, request, user_id: int):
-        """Delete user (staff only)."""
-        if not is_admin(request.user):
-            return Response(
-                {"error": "Sie haben keine Berechtigung."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        """Delete user."""
         user = self._get_user_or_404(user_id)
         if not user:
             return Response(
@@ -1978,19 +2004,15 @@ class AdminUserGroupView(APIView):
     - Remove user from group
 
     Access Control:
-    - Staff only (is_staff == true)
+    - Das Merkmal „Personal": die Gruppenzuordnung entscheidet, welche Akten
+      diese Person sieht.
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.PERSONAL_STAMMDATEN
 
     def post(self, request, user_id: int):
-        """Add user to group (staff only)."""
-        if not is_admin(request.user):
-            return Response(
-                {"error": "Sie haben keine Berechtigung."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        """Add user to group."""
         try:
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
@@ -2020,13 +2042,7 @@ class AdminUserGroupView(APIView):
             return serverfehler(self.__class__.__name__, fehler)
 
     def delete(self, request, user_id: int, group_id: int):
-        """Remove user from group (staff only)."""
-        if not is_admin(request.user):
-            return Response(
-                {"error": "Sie haben keine Berechtigung."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        """Remove user from group."""
         try:
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:

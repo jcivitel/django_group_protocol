@@ -2,9 +2,33 @@
 API für Dienstplanung, Abwesenheiten und Zeiterfassung (Phasen 2 bis 4)
 sowie die SelfService-Sichten aus Phase 7.
 
-Zugriffsregel: Personal sieht alles, alle anderen ausschließlich die eigenen
-Daten. Das gilt für Dienste, Abwesenheitsanträge, Zeitbuchungen und
-Zeitkonten gleichermaßen.
+## Zugriffsregel
+
+Jedes Konto mit Personaldatensatz sieht und schreibt die eigenen Daten:
+Dienste, Abwesenheitsanträge, Zeitbuchungen, Wünsche, Tauschangebote. Dafür
+braucht es kein Merkmal der Rechtematrix — die Endpunkte prüfen den
+Datensatz.
+
+Was über die eigenen Daten hinausgeht, hängt an einer Zeile der Matrix:
+
+    Dienstplan bearbeiten   Pläne und Dienste, Tausch bestätigen
+    Dienstplan freigeben    einen Plan veröffentlichen
+    Abwesenheiten           fremde Anträge sehen und entscheiden
+    Zeiterfassung           eigene Stunden buchen
+    Zeitkonten abschließen  fremde Buchungen sehen, freigeben, Monat schließen
+    Dienstarten             Dienstarten und Besetzungsvorgaben
+    Nachweise               Lohnübergabe
+
+**Bis zum 13. September 2026 fragte jede dieser Stellen `request.user
+.is_staff`** — einen Django-Schalter. Eine Bereichsleitung ohne diesen
+Schalter konnte keinen Dienstplan anlegen, obwohl ihre Rolle es vorsah; ein
+Konto mit dem Schalter durfte alles, auch wenn die Matrix es ausdrücklich
+ausschloss. Beides stand in derselben Datei, zwanzig Mal.
+
+Fremde Abwesenheiten sind der empfindlichste Punkt: eine Krankmeldung ist
+ein Gesundheitsdatum (Art. 9 DSGVO). Deshalb hängt schon das *Sehen* am
+Recht, über Abwesenheiten zu entscheiden, und nicht am Lesen von
+Personalstammdaten — das hat fast jedes Konto.
 """
 
 from calendar import monthrange
@@ -22,6 +46,7 @@ from rest_framework.views import APIView
 from django_grp_org.models import Employee
 from django_grp_org.tenancy import limit_to_tenant
 
+from django_grp_backend import rechte
 from django_grp_backend.access import WriteNeedsRole
 from .models import (
     StaffingRequirement,
@@ -52,9 +77,39 @@ def current_employee(user):
     return Employee.objects.filter(user=user).first()
 
 
-def require_staff(request, message="Nur Mitarbeitende dürfen das ändern."):
-    if not request.user.is_staff:
-        raise PermissionDenied(message)
+def require_recht(request, aktion, message=None):
+    """
+    Verlangt Schreibrecht auf ein Merkmal.
+
+    Hier stand `require_staff(request)`. Der Name war ehrlich — geprüft wurde
+    der Schalter — und die Sache falsch: ob jemand einen Dienstplan anlegen
+    darf, ist eine andere Frage als ob er in den Django-Admin kommt.
+    """
+    if not rechte.darf(request.user, aktion, schreiben=True):
+        name = rechte.AKTION_LABEL.get(aktion, aktion)
+        raise PermissionDenied(message or f"Dafür fehlt das Recht „{name}“.")
+
+
+def sieht_abwesenheiten(user) -> bool:
+    """
+    Darf dieses Konto fremde Abwesenheiten sehen?
+
+    Am Recht zu entscheiden und nicht am Lesen der Personalstammdaten: das
+    hat fast jedes Konto, und eine Krankmeldung gehört nicht zu den Daten,
+    die das ganze Haus sieht.
+    """
+    return rechte.darf(user, rechte.ABWESENHEIT_GENEHMIGEN)
+
+
+def sieht_zeiten(user) -> bool:
+    """
+    Darf dieses Konto fremde Zeitbuchungen sehen?
+
+    Am Abschluss der Zeitkonten: wer einen Monat schließt, muss hineinsehen.
+    Eine Gruppenleitung plant Dienste, rechnet aber nicht ab — sie sieht
+    deshalb die eigenen Stunden und nicht die des Teams.
+    """
+    return rechte.darf(user, rechte.ZEITKONTO_ABSCHLIESSEN)
 
 
 # ---------------------------------------------------------------- Phase 2
@@ -171,20 +226,18 @@ class DutyPlanSerializer(serializers.ModelSerializer):
 class ShiftTypeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ShiftTypeSerializer
+    recht = rechte.ORG_DIENSTARTEN
 
     def get_queryset(self):
         return limit_to_tenant(ShiftType.objects.all(), self.request.user)
 
     def perform_create(self, serializer):
-        require_staff(self.request)
         serializer.save()
 
     def perform_update(self, serializer):
-        require_staff(self.request)
         serializer.save()
 
     def perform_destroy(self, instance):
-        require_staff(self.request)
         instance.delete()
 
 
@@ -250,6 +303,9 @@ class StaffingRequirementViewSet(viewsets.ModelViewSet):
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = StaffingRequirementSerializer
+    # Dieselbe Zeile wie die Dienstarten: wer festlegt, welche Dienste es
+    # gibt, legt auch fest, wie viele davon besetzt sein muessen.
+    recht = rechte.ORG_DIENSTARTEN
 
     def get_queryset(self):
         queryset = StaffingRequirement.objects.select_related(
@@ -261,21 +317,19 @@ class StaffingRequirementViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        require_staff(self.request)
         serializer.save()
 
     def perform_update(self, serializer):
-        require_staff(self.request)
         serializer.save()
 
     def perform_destroy(self, instance):
-        require_staff(self.request)
         instance.delete()
 
 
 class DutyPlanViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = DutyPlanSerializer
+    recht = rechte.DIENSTPLAN_BEARBEITEN
 
     def get_queryset(self):
         queryset = limit_to_tenant(
@@ -297,17 +351,29 @@ class DutyPlanViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        require_staff(self.request, "Nur Mitarbeitende dürfen Dienstpläne anlegen.")
         serializer.save()
 
     def perform_update(self, serializer):
-        require_staff(self.request, "Nur Mitarbeitende dürfen Dienstpläne ändern.")
         if not serializer.instance.is_editable:
             raise ValidationError("Abgeschlossene Dienstpläne sind gesperrt.")
+
+        # Veröffentlichen ist eine eigene Zeile der Matrix, und hier ist die
+        # einzige Stelle, an der es passiert: der Status wandert von
+        # „Entwurf" auf „Veröffentlicht". Danach sehen alle den Plan - wer
+        # ihn bauen darf, darf ihn nicht zwangsläufig verbindlich machen.
+        neuer_status = serializer.validated_data.get(
+            "status", serializer.instance.status
+        )
+        if neuer_status != serializer.instance.status and neuer_status != "draft":
+            require_recht(
+                self.request,
+                rechte.DIENSTPLAN_FREIGEBEN,
+                "Einen Dienstplan freigeben darf nur, wer das Recht "
+                "„Dienstplan freigeben“ hat.",
+            )
         serializer.save()
 
     def perform_destroy(self, instance):
-        require_staff(self.request, "Nur Mitarbeitende dürfen Dienstpläne löschen.")
         instance.delete()
 
 
@@ -316,6 +382,7 @@ class ShiftViewSet(viewsets.ModelViewSet):
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ShiftSerializer
+    recht = rechte.DIENSTPLAN_BEARBEITEN
 
     def get_plan(self):
         plan_id = self.kwargs.get("plan_pk")
@@ -328,7 +395,6 @@ class ShiftViewSet(viewsets.ModelViewSet):
         return Shift.objects.filter(plan=plan).select_related("shift_type", "employee")
 
     def _writable_plan(self):
-        require_staff(self.request, "Nur Mitarbeitende dürfen Dienste ändern.")
         plan = self.get_plan()
         if plan is None:
             raise ValidationError("Dienstplan nicht gefunden.")
@@ -352,6 +418,7 @@ class DutyPlanRulesView(APIView):
     """Regelprüfung eines Dienstplans."""
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht_lesen = rechte.DIENSTPLAN_BEARBEITEN
 
     def get(self, request, plan_id: int):
         plan = DutyPlan.objects.filter(id=plan_id).select_related("department").first()
@@ -381,6 +448,7 @@ class DutyPlanBedarfView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht_lesen = rechte.DIENSTPLAN_BEARBEITEN
 
     def get(self, request, plan_id: int):
         plan = DutyPlan.objects.filter(id=plan_id).select_related(
@@ -448,9 +516,9 @@ class DutyPlanGenerateView(APIView):
     """Legt die Dienste eines Monats an, zunächst alle unbesetzt."""
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.DIENSTPLAN_BEARBEITEN
 
     def post(self, request, plan_id: int):
-        require_staff(request, "Nur Mitarbeitende dürfen Dienste anlegen.")
         plan = DutyPlan.objects.filter(id=plan_id).first()
         if plan is None:
             return Response({"error": "Dienstplan nicht gefunden."}, status=404)
@@ -473,9 +541,9 @@ class DutyPlanAutofillView(APIView):
     """Besetzt die offenen Dienste eines Plans automatisch."""
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.DIENSTPLAN_BEARBEITEN
 
     def post(self, request, plan_id: int):
-        require_staff(request, "Nur Mitarbeitende dürfen Dienste einteilen.")
         plan = (
             DutyPlan.objects.filter(id=plan_id)
             .select_related("department__facility__site__provider")
@@ -493,9 +561,15 @@ class DutyPlanAutofillView(APIView):
 
 
 class SubstituteSearchView(APIView):
-    """Wer könnte diesen Dienst übernehmen?"""
+    """
+    Wer könnte diesen Dienst übernehmen?
+
+    Die Antwort nennt Namen, Qualifikationen und Ruhezeiten fremder Personen.
+    Deshalb am Dienstplanrecht und nicht fuer jeden Angemeldeten.
+    """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht_lesen = rechte.DIENSTPLAN_BEARBEITEN
 
     def get(self, request, shift_id: int):
         shift = (
@@ -571,21 +645,21 @@ class AbsenceSerializer(serializers.ModelSerializer):
 
 class AbsenceTypeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    # Wer ueber Abwesenheiten entscheidet, legt auch fest, welche Arten es
+    # gibt. Eine eigene Zeile dafuer waere eine Zeile zu viel.
+    recht = rechte.ABWESENHEIT_GENEHMIGEN
     serializer_class = AbsenceTypeSerializer
 
     def get_queryset(self):
         return limit_to_tenant(AbsenceType.objects.all(), self.request.user)
 
     def perform_create(self, serializer):
-        require_staff(self.request)
         serializer.save()
 
     def perform_update(self, serializer):
-        require_staff(self.request)
         serializer.save()
 
     def perform_destroy(self, instance):
-        require_staff(self.request)
         instance.delete()
 
 
@@ -593,13 +667,19 @@ class AbsenceViewSet(viewsets.ModelViewSet):
     """
     Abwesenheitsanträge.
 
-    Wer kein Personal ist, sieht und stellt nur eigene Anträge. Über den
-    Status entscheidet ausschließlich Personal - sonst könnte sich jede
-    Person den Urlaub selbst genehmigen.
+    Jede Person stellt eigene Anträge - dafür braucht es kein Merkmal. Über
+    den Status entscheidet, wer das Recht „Abwesenheiten“ hat; sonst könnte
+    sich jede Person den Urlaub selbst genehmigen.
+
+    Fremde Anträge sieht nur, wer sie entscheiden darf. Eine Krankmeldung ist
+    ein Gesundheitsdatum, und sie steht hier mit Grund und Zeitraum.
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = AbsenceSerializer
+    # Eigene Anträge gehören jedem Konto. Was darüber hinausgeht, prüfen die
+    # Methoden unten - mit dem Antrag in der Hand.
+    recht = None
 
     def get_queryset(self):
         queryset = limit_to_tenant(
@@ -607,7 +687,7 @@ class AbsenceViewSet(viewsets.ModelViewSet):
             self.request.user,
             "employee__provider_id",
         )
-        if not self.request.user.is_staff:
+        if not sieht_abwesenheiten(self.request.user):
             queryset = queryset.filter(employee__user=self.request.user)
 
         employee = self.request.query_params.get("mitarbeiter")
@@ -618,8 +698,13 @@ class AbsenceViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(status=status_filter)
         return queryset
 
-    def _own_or_staff(self, employee_id):
-        if self.request.user.is_staff:
+    def _entscheidet(self) -> bool:
+        return rechte.darf(
+            self.request.user, rechte.ABWESENHEIT_GENEHMIGEN, schreiben=True
+        )
+
+    def _eigener_oder_erlaubt(self, employee_id):
+        if self._entscheidet():
             return
         own = current_employee(self.request.user)
         if own is None or own.id != employee_id:
@@ -627,27 +712,28 @@ class AbsenceViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         employee_id = serializer.validated_data["employee"].id
-        self._own_or_staff(employee_id)
+        self._eigener_oder_erlaubt(employee_id)
 
         # Über den Status entscheidet die Leitung, nicht die antragstellende
         # Person - deshalb startet jeder Antrag als "beantragt".
         status_value = serializer.validated_data.get("status", "requested")
-        if not self.request.user.is_staff:
+        if not self._entscheidet():
             status_value = "requested"
         serializer.save(status=status_value)
 
     def perform_update(self, serializer):
         instance = serializer.instance
-        self._own_or_staff(instance.employee_id)
+        self._eigener_oder_erlaubt(instance.employee_id)
 
+        entscheidet = self._entscheidet()
         new_status = serializer.validated_data.get("status", instance.status)
-        if new_status != instance.status and not self.request.user.is_staff:
+        if new_status != instance.status and not entscheidet:
             # Zurückziehen darf man selbst, genehmigen nicht.
             if new_status != "cancelled":
                 raise PermissionDenied("Über Anträge entscheidet die Leitung.")
 
         extra = {}
-        if new_status in ("approved", "rejected") and self.request.user.is_staff:
+        if new_status in ("approved", "rejected") and entscheidet:
             extra = {
                 "decided_by": current_employee(self.request.user),
                 "decided_at": timezone.now(),
@@ -655,7 +741,7 @@ class AbsenceViewSet(viewsets.ModelViewSet):
         serializer.save(**extra)
 
     def perform_destroy(self, instance):
-        self._own_or_staff(instance.employee_id)
+        self._eigener_oder_erlaubt(instance.employee_id)
         instance.delete()
 
 
@@ -663,12 +749,14 @@ class VacationBalanceView(APIView):
     """Urlaubskonto einer Person für ein Jahr."""
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht_lesen = None
 
     def get(self, request, employee_id: int):
         employee = Employee.objects.filter(id=employee_id).first()
         if employee is None:
             return Response({"error": "Mitarbeitende nicht gefunden."}, status=404)
-        if not request.user.is_staff and employee.user_id != request.user.id:
+        fremd = employee.user_id != request.user.id
+        if fremd and not sieht_abwesenheiten(request.user):
             raise PermissionDenied("Nur das eigene Urlaubskonto ist einsehbar.")
 
         year = int(request.query_params.get("jahr") or date.today().year)
@@ -747,8 +835,17 @@ class TimeAccountSerializer(serializers.ModelSerializer):
 
 
 class TimeEntryViewSet(viewsets.ModelViewSet):
+    """
+    Zeitbuchungen.
+
+    Die eigenen bucht jedes Konto mit dem Recht „Zeiterfassung“ - das haben
+    auch Aushilfen, weil sonst niemand ihre Stunden erfassen könnte. Fremde
+    Buchungen sieht und ändert nur, wer Zeitkonten abschließt.
+    """
+
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = TimeEntrySerializer
+    recht = rechte.ZEIT_ERFASSEN
 
     def get_queryset(self):
         queryset = limit_to_tenant(
@@ -756,7 +853,7 @@ class TimeEntryViewSet(viewsets.ModelViewSet):
             self.request.user,
             "employee__provider_id",
         )
-        if not self.request.user.is_staff:
+        if not sieht_zeiten(self.request.user):
             queryset = queryset.filter(employee__user=self.request.user)
 
         employee = self.request.query_params.get("mitarbeiter")
@@ -770,37 +867,42 @@ class TimeEntryViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(date__month=month)
         return queryset
 
-    def _own_or_staff(self, employee_id):
-        if self.request.user.is_staff:
+    def _darf_abschliessen(self) -> bool:
+        return rechte.darf(
+            self.request.user, rechte.ZEITKONTO_ABSCHLIESSEN, schreiben=True
+        )
+
+    def _eigene_oder_erlaubt(self, employee_id):
+        if self._darf_abschliessen():
             return
         own = current_employee(self.request.user)
         if own is None or own.id != employee_id:
             raise PermissionDenied("Du kannst nur eigene Zeiten erfassen.")
 
     def perform_create(self, serializer):
-        self._own_or_staff(serializer.validated_data["employee"].id)
+        self._eigene_oder_erlaubt(serializer.validated_data["employee"].id)
         serializer.save()
 
     def perform_update(self, serializer):
-        self._own_or_staff(serializer.instance.employee_id)
-        if serializer.instance.approved and not self.request.user.is_staff:
+        self._eigene_oder_erlaubt(serializer.instance.employee_id)
+        if serializer.instance.approved and not self._darf_abschliessen():
             raise PermissionDenied("Freigegebene Buchungen sind gesperrt.")
         serializer.save()
 
     def perform_destroy(self, instance):
-        self._own_or_staff(instance.employee_id)
-        if instance.approved and not self.request.user.is_staff:
+        self._eigene_oder_erlaubt(instance.employee_id)
+        if instance.approved and not self._darf_abschliessen():
             raise PermissionDenied("Freigegebene Buchungen sind gesperrt.")
         instance.delete()
 
 
 class TimeEntryApprovalView(APIView):
-    """Zeitbuchungen freigeben - nur durch Personal."""
+    """Zeitbuchungen freigeben - wer Zeitkonten abschließt."""
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.ZEITKONTO_ABSCHLIESSEN
 
     def post(self, request):
-        require_staff(request, "Nur Mitarbeitende dürfen Zeiten freigeben.")
         ids = request.data.get("entries") or []
         approved = bool(request.data.get("approved", True))
         count = TimeEntry.objects.filter(id__in=ids).update(approved=approved)
@@ -810,6 +912,8 @@ class TimeEntryApprovalView(APIView):
 class TimeAccountViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = TimeAccountSerializer
+    # Das eigene Konto sieht jeder, fremde nur wer sie abschließt.
+    recht_lesen = None
 
     def get_queryset(self):
         queryset = limit_to_tenant(
@@ -817,7 +921,7 @@ class TimeAccountViewSet(viewsets.ReadOnlyModelViewSet):
             self.request.user,
             "employee__provider_id",
         )
-        if not self.request.user.is_staff:
+        if not sieht_zeiten(self.request.user):
             queryset = queryset.filter(employee__user=self.request.user)
         year = self.request.query_params.get("jahr")
         if year:
@@ -829,9 +933,9 @@ class CloseMonthView(APIView):
     """Monatsabschluss: Zeitkonten neu berechnen."""
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.ZEITKONTO_ABSCHLIESSEN
 
     def post(self, request):
-        require_staff(request, "Nur Mitarbeitende dürfen Monate abschließen.")
         year = int(request.data.get("year") or date.today().year)
         month = int(request.data.get("month") or date.today().month)
         employee_ids = request.data.get("employees")
@@ -862,6 +966,9 @@ class MyDutyView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    # Ausschließlich eigene Daten: der Endpunkt liest den Personaldatensatz
+    # des angemeldeten Kontos und nimmt keine fremde Nummer an.
+    recht_lesen = None
 
     def get(self, request):
         employee = current_employee(request.user)
@@ -974,10 +1081,17 @@ class ShiftSwapSerializer(serializers.ModelSerializer):
 
 
 class ShiftPreferenceViewSet(viewsets.ModelViewSet):
-    """Dienstwünsche. Jede Person pflegt die eigenen, Personal sieht alle."""
+    """
+    Dienstwünsche.
+
+    Jede Person pflegt die eigenen - dafür braucht es kein Merkmal, ein
+    Wunsch ist eine Angabe und keine Zusage. Alle Wünsche sieht, wer den Plan
+    baut; er muss sie ja berücksichtigen können.
+    """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ShiftPreferenceSerializer
+    recht = None
 
     def get_queryset(self):
         queryset = limit_to_tenant(
@@ -985,7 +1099,7 @@ class ShiftPreferenceViewSet(viewsets.ModelViewSet):
             self.request.user,
             "employee__provider_id",
         )
-        if not self.request.user.is_staff:
+        if not rechte.darf(self.request.user, rechte.DIENSTPLAN_BEARBEITEN):
             queryset = queryset.filter(employee__user=self.request.user)
 
         month = self.request.query_params.get("monat")
@@ -996,23 +1110,25 @@ class ShiftPreferenceViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(date__month=month)
         return queryset
 
-    def _own_or_staff(self, employee_id):
-        if self.request.user.is_staff:
+    def _eigener_oder_erlaubt(self, employee_id):
+        if rechte.darf(
+            self.request.user, rechte.DIENSTPLAN_BEARBEITEN, schreiben=True
+        ):
             return
         own = current_employee(self.request.user)
         if own is None or own.id != employee_id:
             raise PermissionDenied("Du kannst nur eigene Wünsche eintragen.")
 
     def perform_create(self, serializer):
-        self._own_or_staff(serializer.validated_data["employee"].id)
+        self._eigener_oder_erlaubt(serializer.validated_data["employee"].id)
         serializer.save()
 
     def perform_update(self, serializer):
-        self._own_or_staff(serializer.instance.employee_id)
+        self._eigener_oder_erlaubt(serializer.instance.employee_id)
         serializer.save()
 
     def perform_destroy(self, instance):
-        self._own_or_staff(instance.employee_id)
+        self._eigener_oder_erlaubt(instance.employee_id)
         instance.delete()
 
 
@@ -1020,12 +1136,14 @@ class ShiftSwapViewSet(viewsets.ModelViewSet):
     """
     Diensttausch.
 
-    Anbieten und Annehmen darf jede betroffene Person, bestätigen nur die
-    Leitung - erst dann wechselt der Dienst.
+    Anbieten und Annehmen darf jede betroffene Person - dafür braucht es
+    kein Merkmal. Bestätigen darf, wer den Dienstplan bearbeiten darf: mit
+    der Bestätigung wechselt der Dienst, und das ist eine Planänderung.
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
     serializer_class = ShiftSwapSerializer
+    recht = None
 
     def get_queryset(self):
         queryset = limit_to_tenant(
@@ -1040,10 +1158,15 @@ class ShiftSwapViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(status=status_filter)
         return queryset
 
+    def _plant(self) -> bool:
+        return rechte.darf(
+            self.request.user, rechte.DIENSTPLAN_BEARBEITEN, schreiben=True
+        )
+
     def perform_create(self, serializer):
         own = current_employee(self.request.user)
         offered_by = serializer.validated_data["offered_by"]
-        if not self.request.user.is_staff and (own is None or own.id != offered_by.id):
+        if not self._plant() and (own is None or own.id != offered_by.id):
             raise PermissionDenied("Du kannst nur eigene Dienste anbieten.")
 
         shift = serializer.validated_data["shift"]
@@ -1056,13 +1179,13 @@ class ShiftSwapViewSet(viewsets.ModelViewSet):
         own = current_employee(self.request.user)
         new_status = serializer.validated_data.get("status", instance.status)
 
-        if new_status == "confirmed" and not self.request.user.is_staff:
-            raise PermissionDenied("Einen Tausch bestätigt die Leitung.")
+        if new_status == "confirmed" and not self._plant():
+            raise PermissionDenied("Einen Tausch bestätigt die Dienstplanung.")
 
         if new_status == "accepted":
             # Wer annimmt, trägt sich selbst ein - nicht jemand anderen.
             accepted_by = serializer.validated_data.get("accepted_by")
-            if not self.request.user.is_staff and (
+            if not self._plant() and (
                 own is None or accepted_by is None or accepted_by.id != own.id
             ):
                 raise PermissionDenied("Du kannst den Tausch nur selbst annehmen.")
@@ -1074,9 +1197,7 @@ class ShiftSwapViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         own = current_employee(self.request.user)
-        if not self.request.user.is_staff and (
-            own is None or own.id != instance.offered_by_id
-        ):
+        if not self._plant() and (own is None or own.id != instance.offered_by_id):
             raise PermissionDenied("Du kannst nur eigene Angebote zurückziehen.")
         instance.delete()
 
@@ -1091,9 +1212,12 @@ class PayrollExportView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    # Eine GET-Anfrage, und bis hierher reichte dafür `is_staff`. Die Zeilen
+    # nennen jede Person mit Stunden, Zuschlägen und Lohnart - das ist die
+    # Gehaltsabrechnung des ganzen Hauses.
+    recht_lesen = rechte.NACHWEISE
 
     def get(self, request):
-        require_staff(request, "Nur Mitarbeitende dürfen die Abrechnung abrufen.")
         from .payroll import build_rows, missing_accounts, wage_types
 
         year = int(request.query_params.get("jahr") or date.today().year)

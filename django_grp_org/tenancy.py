@@ -18,12 +18,20 @@ def visible_provider_ids(user):
 
     - Superuser sehen alles.
     - Wer einen Personaldatensatz hat, sieht genau dessen Träger.
-    - Konten ohne Personaldatensatz sehen weiterhin alles. Das ist bewusst
-      so: bestehende Verwaltungskonten wären sonst nach dem Update
-      ausgesperrt. Sobald einem Konto Personal zugeordnet ist, greift die
-      Trennung.
+    - Konten ohne Personaldatensatz sehen weiterhin alles, solange
+      `STRICT_TENANCY` aus ist. Das ist bewusst so: bestehende
+      Verwaltungskonten wären sonst nach dem Update ausgesperrt. Sobald einem
+      Konto Personal zugeordnet ist, greift die Trennung.
 
-    Rückgabe `None` bedeutet „keine Einschränkung".
+    Rückgabe `None` bedeutet „keine Einschränkung", eine leere Liste „nichts".
+
+    **`STRICT_TENANCY` galt bis zum 13. September 2026 nur für Gruppen.** Der
+    Schalter stand in `django_grp_backend.models.traeger_filter` und wurde
+    hier nicht gelesen. Wer ihn scharf schaltete, bekam die Trennung für
+    Gruppen, Bewohner und Protokolle — und keine für Personal, Dienstpläne,
+    Zeitkonten und Fallakten, die alle über diese Funktion laufen. Ein halb
+    scharfer Schalter ist schlimmer als ein offener: er sieht aus wie eine
+    Grenze.
     """
     if user.is_superuser:
         return None
@@ -31,7 +39,15 @@ def visible_provider_ids(user):
     provider_ids = list(
         Employee.objects.filter(user=user).values_list("provider_id", flat=True)
     )
-    return provider_ids or None
+    if provider_ids:
+        return provider_ids
+
+    from django.conf import settings
+
+    if getattr(settings, "STRICT_TENANCY", False):
+        # Kein Personaldatensatz, kein Traeger, keine Daten.
+        return []
+    return None
 
 
 def limit_to_tenant(queryset, user, path="provider_id"):

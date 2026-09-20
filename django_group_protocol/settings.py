@@ -178,6 +178,48 @@ MAIN_DATABASE_PORT = config("MAIN_DATABASE_PORT", default="3306", cast=str)
 MAIN_DATABASE_ENGINE = config(
     "MAIN_DATABASE_ENGINE", default="django.db.backends.sqlite3", cast=str
 )
+
+# Bekannte Vorgabepasswoerter.
+#
+# Dieselbe Ueberlegung wie beim SECRET_KEY: sie stehen im Docker-Compose
+# dieses Projekts und damit oeffentlich lesbar. Wer den Stapel ohne
+# vollstaendige .env startet, bekommt eine Datenbank mit einem Passwort, das
+# jeder nachlesen kann - und bis zum 13. September 2026 veroeffentlichte
+# Docker den Port dazu auf allen Schnittstellen.
+#
+# Im Entwicklungsbetrieb bleibt das erlaubt, sonst laesst sich das Projekt
+# nicht in einem Zug ausprobieren. Mit DEBUG=False ist es ein Abbruch: lauter
+# Fehlschlag statt stiller Unsicherheit.
+# Nicht wie beim SECRET_KEY ein Abbruch ohne Ausweg, und der Grund ist ein
+# praktischer: den Schluessel kann man jederzeit tauschen, das
+# Datenbankpasswort nicht - dazu gehoert ein ALTER USER in der laufenden
+# Datenbank. Ein Update, das eine Anlage deshalb nicht mehr hochkommen laesst,
+# waere ein Ausfall aus Sicherheitsgruenden, und den traegt niemand mit.
+#
+# Deshalb: Abbruch als Vorgabe, und ein Schalter, mit dem man ausdruecklich
+# sagt "ich weiss es". Wer ihn setzt, hat es gelesen.
+_BEKANNTE_PASSWOERTER = {"grp-proto", "secret", "megasec", "changeme", "password"}
+VORGABEPASSWORT_ERLAUBT = config(
+    "VORGABEPASSWORT_ERLAUBT", default=False, cast=bool
+)
+
+if (
+    not DEBUG
+    and not VORGABEPASSWORT_ERLAUBT
+    and MAIN_DATABASE_PASSWD in _BEKANNTE_PASSWOERTER
+):
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        "MAIN_DATABASE_PASSWD steht auf einem Wert, der in diesem Projekt "
+        "als Vorgabe im Docker-Compose steht und damit oeffentlich bekannt "
+        "ist. Ein eigenes Passwort erzeugen mit: openssl rand -base64 32, "
+        "es als MAIN_DATABASE_PASSWD und MARIADB_PASSWORD in die .env "
+        "eintragen und in der Datenbank setzen (ALTER USER). Wer bewusst "
+        "dabei bleibt - etwa auf einem Rechner ohne Netz -, setzt "
+        "VORGABEPASSWORT_ERLAUBT=True."
+    )
+
 DATABASES = {
     "default": {
         "ENGINE": MAIN_DATABASE_ENGINE,

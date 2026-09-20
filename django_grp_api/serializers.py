@@ -648,12 +648,19 @@ class UserGroupPermissionSerializer(serializers.ModelSerializer):
         """
         Was dieses Konto in dieser Gruppe darf.
 
-        Frueher stand hier `can_edit = is_member or is_staff` - die Stufe
-        "Aushilfe / Azubi" kam schlicht nicht vor. Das Frontend zeigte
-        Bearbeiten-Knoepfe, die serverseitig in ein 403 liefen. Jetzt
-        antwortet diese Stelle mit derselben Regel, die auch durchgesetzt
-        wird: access_level plus Mitgliedschaft.
+        Zuerst stand hier `can_edit = is_member or is_staff` - die Stufe
+        "Aushilfe / Azubi" kam schlicht nicht vor. Danach rechnete diese
+        Stelle selbst mit `access_level`, und das war dieselbe Sorte Fehler
+        eine Ebene hoeher: eine zweite Rechnung fuer die Anzeige. Sobald die
+        Rechtematrix `Protokolle: kein Zugriff` sagte, meldete sie weiter
+        `can_edit: true`, weil die Stufe „Fachkraft" es hergab.
+
+        Jetzt fragt sie `rechte.darf()` - dieselbe Stelle, die auch den
+        Schreibzugriff entscheidet, und mit der Gruppe in der Hand, damit die
+        Antwort auch sagt, *wo* das Recht gilt.
         """
+        from django_grp_backend import rechte
+
         request = self.context.get("request")
         if not request:
             return {}
@@ -661,18 +668,27 @@ class UserGroupPermissionSerializer(serializers.ModelSerializer):
         user = request.user
         is_member = obj.group_members.filter(id=user.id).exists()
         stufe = access_level(user)
-        darf_verwalten = stufe == ADMIN or bool(getattr(user, "is_superuser", False))
-        darf_schreiben = darf_verwalten or (stufe == SPECIALIST and is_member)
+        darf_verwalten = rechte.verwaltet(user)
+        # Fachlich dokumentieren heisst hier: in dieser Gruppe. Wer die
+        # Anlage verwaltet, sieht alle Gruppen - das entscheidet
+        # `Group.objects.for_user`, nicht diese Zeile.
+        darf_schreiben = (is_member or darf_verwalten) and rechte.darf(
+            user, rechte.PROTOKOLLE, obj, schreiben=True
+        )
 
         return {
             "is_member": is_member,
+            # Der Name bleibt, weil die App ihn liest. Was er beantwortet, ist
+            # seit der Matrix „darf die Anlage verwalten" und nicht mehr der
+            # Django-Schalter.
             "is_staff": darf_verwalten,
             "access_level": stufe,
             "can_view": is_member or darf_verwalten,
             "can_edit": darf_schreiben,
-            # Loeschen kaskadiert auf Bewohner UND Protokolle. Das bleibt
-            # der Verwaltung vorbehalten.
-            "can_delete": darf_verwalten,
+            # Loeschen kaskadiert auf Bewohner UND Protokolle. Es ist ein
+            # Eingriff in die Organisationsstruktur und haengt an derselben
+            # Zeile wie Traeger, Standort und Bereich.
+            "can_delete": rechte.darf(user, rechte.ORG_STRUKTUR, schreiben=True),
         }
 
     def get_resident_count(self, obj):

@@ -27,8 +27,10 @@ class ZweitfaktorBasis(APITestCase):
         self.fachkraft = User.objects.create_user(
             username="fach", password="testpass123"
         )
-        # is_staff traegt den Generalschluessel: dieses Konto darf verwalten
-        # und hat damit Pflicht.
+        # Ohne Personaldatensatz leitet `access_level()` aus `is_staff` die
+        # Stufe „Mitarbeiter" ab. Dieses Konto darf damit verwalten und hat
+        # Pflicht - der Generalschluessel haengt seit dem 13. September 2026
+        # allein am Superuser, die Stufe reicht hier aber.
         self.leitung = User.objects.create_user(
             username="leitung", password="testpass123", is_staff=True
         )
@@ -175,8 +177,24 @@ class ZuruecksetzenTestCase(ZweitfaktorBasis):
         self.assertEqual(antwort.status_code, status.HTTP_403_FORBIDDEN)
         self.assertTrue(ZweiterFaktor.objects.filter(user=self.leitung).exists())
 
+    def test_ohne_eigenen_faktor_geht_es_nicht(self):
+        """
+        Sonst waere der Notausgang eine Tuer: zwei Konten ohne Faktor setzen
+        einander gegenseitig zurueck, und keines hat je einen.
+        """
+        self._einrichten(self.fachkraft)
+        self.client.force_authenticate(user=self.leitung)
+
+        antwort = self.client.post(
+            "/api/v1/zweitfaktor/zuruecksetzen/", {"user": self.fachkraft.id}
+        )
+
+        self.assertEqual(antwort.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(ZweiterFaktor.objects.filter(user=self.fachkraft).exists())
+
     def test_die_verwaltung_setzt_zurueck(self):
         self._einrichten(self.fachkraft)
+        self._einrichten(self.leitung)
         self.client.force_authenticate(user=self.leitung)
 
         antwort = self.client.post(
@@ -206,6 +224,7 @@ class ZuruecksetzenTestCase(ZweitfaktorBasis):
         from django_grp_org.audit import AuditEvent
 
         self._einrichten(self.fachkraft)
+        self._einrichten(self.leitung)
         vorher = AuditEvent.objects.count()
 
         self.client.force_authenticate(user=self.leitung)

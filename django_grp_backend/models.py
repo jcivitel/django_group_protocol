@@ -52,17 +52,18 @@ def traeger_filter(user):
     django_grp_org nicht zur Ladezeit brauchen - sonst schliesst sich der
     Ring zwischen den beiden Apps.
     """
-    from django.conf import settings
     from django_grp_org.tenancy import visible_provider_ids
 
+    # `None` heisst "keine Einschraenkung" - Superuser, oder ein Konto ohne
+    # Personaldatensatz bei ausgeschaltetem STRICT_TENANCY. Eine leere Liste
+    # heisst "nichts": das ist derselbe Fall mit scharfem Schalter. Die
+    # Unterscheidung trifft `visible_provider_ids`, damit sie fuer alle
+    # Aufrufer gleich ausfaellt und nicht nur fuer Gruppen.
     provider_ids = visible_provider_ids(user)
     if provider_ids is None:
-        if getattr(settings, "STRICT_TENANCY", False) and not getattr(
-            user, "is_superuser", False
-        ):
-            # Kein Personaldatensatz, kein Traeger, keine Gruppen.
-            return models.Q(pk__in=[])
         return models.Q()
+    if not provider_ids:
+        return models.Q(pk__in=[])
 
     return models.Q(
         departments__facility__site__provider_id__in=provider_ids

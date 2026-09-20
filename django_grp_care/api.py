@@ -16,8 +16,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from django_grp_backend.access import WriteNeedsRole
-from django_grp_backend.rechte import generalschluessel
+from django_grp_backend import rechte
+from django_grp_backend.access import WriteNeedsRole, is_admin
 from django_grp_backend.models import ProtocolObservation
 from django_grp_org.models import Role
 from django_grp_org.tenancy import limit_to_tenant
@@ -38,7 +38,14 @@ def accessible_case_files(user):
 
     Drei Wege hinein, in dieser Reihenfolge:
 
-    1. Der Generalschluessel (Superuser, `is_staff`) sieht alles.
+    Drei Wege hinein, in dieser Reihenfolge:
+
+    1. Wer die Anlage verwaltet, sieht alle Akten des eigenen Traegers -
+       dieselbe Schranke wie bei Gruppen, Bewohnern und Protokollen. Hier
+       stand `generalschluessel`, also Superuser und `is_staff`; seit der
+       Generalschluessel nur noch am Superuser haengt, waere das eine
+       Einrichtungsleitung, die die Akten ihres eigenen Hauses nicht mehr
+       sieht.
     2. Unter `RECHTE_QUELLE=rollen` zusaetzlich: wer eine Rolle auf genau
        dieser Akte hat - Fallfuehrung oder externe Lesekraft. Das ist der
        Punkt, an dem ein Jugendamt einen einzelnen Fall einsehen kann, ohne
@@ -48,11 +55,14 @@ def accessible_case_files(user):
     Der dritte Weg ist der grosszuegigste und derjenige, den das Rollenmodell
     spaeter enger fasst - heute sieht jedes Gruppenmitglied jede Akte seiner
     Gruppe.
+
+    Ob dieses Konto ueberhaupt Fallakten fuehren darf, steht nicht hier,
+    sondern als `recht` am Endpunkt. Diese Funktion beantwortet *welche*.
     """
     queryset = limit_to_tenant(
         CaseFile.objects.select_related("resident", "responsible"), user
     )
-    if generalschluessel(user):
+    if is_admin(user):
         return queryset
 
     ueber_gruppe = Q(resident__group__group_members=user)
@@ -74,9 +84,22 @@ def accessible_case_files(user):
 
 
 class CaseScopedMixin:
-    """Prüft bei jedem Zugriff, ob die Fallakte sichtbar ist."""
+    """
+    Prüft bei jedem Zugriff, ob die Fallakte sichtbar ist.
+
+    Zwei Schranken hintereinander, und sie beantworten verschiedene Fragen.
+    `recht` sagt, ob dieses Konto überhaupt Fallakten führen darf;
+    `guard_case` sagt, ob es diese eine sehen darf. Die erste ohne die zweite
+    wäre eine Leitung, die jede Akte des Hauses liest; die zweite ohne die
+    erste ein Team, in dem jeder alles dokumentiert.
+
+    Bis zum 13. September 2026 prüfte `WriteNeedsRole` hier das Recht auf
+    Protokolle. Wer Protokolle schreiben durfte, schrieb damit auch
+    Hilfepläne - auch wenn die Matrix *Fallakten: kein Zugriff* sagte.
+    """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.FALLAKTE
 
     def visible_case_ids(self):
         return accessible_case_files(self.request.user).values_list("id", flat=True)
@@ -273,8 +296,9 @@ class CaseFileViewSet(CaseScopedMixin, viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        if not self.request.user.is_staff:
-            raise PermissionDenied("Nur Mitarbeitende dürfen Fallakten anlegen.")
+        # Das Merkmal prüft `WriteNeedsRole` schon. Hier bleibt nichts weiter
+        # zu prüfen: eine Akte, die es noch nicht gibt, hat keinen
+        # Geltungsbereich.
         serializer.save()
 
     def perform_update(self, serializer):
@@ -282,8 +306,7 @@ class CaseFileViewSet(CaseScopedMixin, viewsets.ModelViewSet):
         serializer.save()
 
     def perform_destroy(self, instance):
-        if not self.request.user.is_staff:
-            raise PermissionDenied("Nur Mitarbeitende dürfen Fallakten löschen.")
+        self.guard_case(instance.id)
         instance.delete()
 
 
@@ -325,6 +348,7 @@ class HelpPlanContinueView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht = rechte.FALLAKTE
 
     def post(self, request, plan_id: int):
         plan = (
@@ -336,8 +360,6 @@ class HelpPlanContinueView(APIView):
         )
         if plan is None:
             return Response({"error": "Hilfeplan nicht gefunden."}, status=404)
-        if not request.user.is_staff:
-            raise PermissionDenied("Nur Mitarbeitende dürfen fortschreiben.")
 
         successor = HelpPlan.objects.create(
             case_file=plan.case_file,
@@ -472,6 +494,7 @@ class CaseTimelineView(APIView):
     """
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht_lesen = rechte.FALLAKTE
 
     def get(self, request, case_id: int):
         case_file = accessible_case_files(request.user).filter(id=case_id).first()
@@ -526,6 +549,7 @@ class ReviewDueView(APIView):
     """Hilfepläne, deren Fortschreibung ansteht - Termine für den Kalender."""
 
     permission_classes = [IsAuthenticated, WriteNeedsRole]
+    recht_lesen = rechte.FALLAKTE
 
     def get(self, request):
         plans = (

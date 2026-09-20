@@ -27,7 +27,11 @@ from rest_framework.views import APIView
 
 from django_grp_backend import zweitfaktor
 from django_grp_backend.models import ZweiterFaktor
-from django_grp_backend.rechte import verwaltet, zweitfaktor_pflicht
+from django_grp_backend.rechte import (
+    verwaltungsrecht,
+    zweitfaktor_erfuellt,
+    zweitfaktor_pflicht,
+)
 
 HERAUSGEBER = "Gruppenprotokoll"
 
@@ -214,8 +218,11 @@ class ZweitfaktorZuruecksetzenView(APIView):
 
     Drei Schranken:
 
-    1. Nur wer verwalten darf. Dieselbe Zeile der Rechtematrix, an der auch
-       die Pflicht haengt - wer zuruecksetzen darf, hat selbst einen Faktor.
+    1. Nur wer etwas Verwaltendes aendern darf - Organisation, Personal oder
+       Rechte. Genau dieselbe Bedingung, an der auch die Pflicht haengt, und
+       zusaetzlich ein eingerichteter eigener Faktor. Ohne das zweite waere
+       der Notausgang eine Tuer: zwei Konten ohne Faktor setzen einander
+       gegenseitig zurueck und keines hat je einen.
     2. Nicht fuer das eigene Konto. Sonst waere es kein Notfallweg, sondern
        ein Abschalten ohne Code an der Pruefung in `ZweitfaktorAusView`
        vorbei.
@@ -226,11 +233,24 @@ class ZweitfaktorZuruecksetzenView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        if not verwaltet(request.user):
+        if not verwaltungsrecht(request.user):
             return Response(
                 {
                     "success": False,
                     "error": "Dafür fehlen die Rechte.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if not zweitfaktor_erfuellt(request.user):
+            return Response(
+                {
+                    "success": False,
+                    "error": (
+                        "Den Faktor eines anderen Kontos zurückzusetzen ist "
+                        "nur mit eigenem zweiten Faktor möglich. Bitte zuerst "
+                        "unter Profil einrichten."
+                    ),
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )

@@ -98,22 +98,76 @@ def may_read_only(user) -> bool:
 
 class WriteNeedsRole:
     """
-    Schreibzugriff nur fuer Mitarbeiter und Fachkraefte.
+    Der Endpunkt sagt, welches Merkmal er braucht - hier wird gefragt.
 
     Als DRF-Rechteklasse und nicht als Pruefung in jedem einzelnen View:
     verteilt man so etwas von Hand, fehlt es irgendwann an einer Stelle -
     und genau die ist dann die Luecke. Hier gilt es fuer jeden Endpunkt,
     der die Klasse fuehrt, und fuer jede veraendernde Methode.
 
+    **Bis zur Rechtematrix fragte diese Klasse an jedem Endpunkt dasselbe:
+    `PROTOKOLLE` schreiben.** Das war richtig, solange eine Stufe fuer die
+    ganze Anwendung galt, und wurde mit der Matrix zur Luecke: achtzehn
+    Zeilen in der Oberflaeche, eine davon durchgesetzt. Wer `Dienstplan` auf
+    „kein Zugriff" stellte, nahm damit einen Knopf weg und kein Recht - der
+    Endpunkt liess weiter durch, weil die Person Protokolle schreiben darf.
+
+    Jetzt nennt jeder Endpunkt sein Merkmal:
+
+        class DutyPlanViewSet(viewsets.ModelViewSet):
+            recht = rechte.DIENSTPLAN_BEARBEITEN
+
+    `recht` gilt fuer veraendernde Methoden, `recht_lesen` fuer GET. Bleibt
+    `recht_lesen` leer, darf jede angemeldete Person lesen, was ihr
+    `get_queryset` uebrig laesst - das ist fuer die meisten Endpunkte die
+    richtige Antwort, weil der Geltungsbereich dort und nicht hier
+    entschieden wird.
+
+    Ohne `recht` bleibt es bei `PROTOKOLLE`. Ein neuer Endpunkt ist damit
+    nicht versehentlich offen, sondern versehentlich zu streng - die
+    Richtung, in der ein Fehler auffaellt, ohne Schaden anzurichten.
+
     Eine Oberflaeche, die den Knopf versteckt, ist keine Rechtevergabe.
     """
 
     SAFE = ("GET", "HEAD", "OPTIONS")
 
-    def has_permission(self, request, view):
-        if request.method in self.SAFE:
+    #: Unterscheidet „kein Merkmal genannt" von „ausdruecklich keines noetig".
+    #: Ein Endpunkt, der eigene Daten verwaltet - die eigene Zeitbuchung, der
+    #: eigene Wunsch, der eigene Antrag - setzt `recht = None`. Er prueft dann
+    #: selbst, dass es die eigenen sind. Ohne diese Unterscheidung bliebe nur
+    #: die Wahl zwischen einem falschen Merkmal und gar keiner Pruefung.
+    _UNGESETZT = object()
+
+    def _merkmal(self, view, lesen: bool):
+        from .rechte import PROTOKOLLE
+
+        if lesen:
+            return getattr(view, "recht_lesen", None)
+        wert = getattr(view, "recht", self._UNGESETZT)
+        return PROTOKOLLE if wert is self._UNGESETZT else wert
+
+    def _pruefen(self, request, view, objekt=None) -> bool:
+        from .rechte import AKTION_LABEL, darf
+
+        lesen = request.method in self.SAFE
+        merkmal = self._merkmal(view, lesen)
+        if merkmal is None:
             return True
-        return may_write(request.user)
+
+        if darf(request.user, merkmal, objekt, schreiben=not lesen):
+            return True
+
+        # Die Meldung nennt das fehlende Merkmal. Sonst steht die Person vor
+        # einem 403 und weiss nicht, welche Zeile der Matrix fehlt - und die
+        # Verwaltung raet beim Nachbessern.
+        name = AKTION_LABEL.get(merkmal, merkmal)
+        was = "zum Lesen" if lesen else "zum Ändern"
+        self.message = f"Dafür fehlt das Recht „{name}“ {was}."
+        return False
+
+    def has_permission(self, request, view):
+        return self._pruefen(request, view)
 
     def has_object_permission(self, request, view, obj):
         """
@@ -123,13 +177,6 @@ class WriteNeedsRole:
         keinen Geltungsbereich. Unter `rollen` ist es der Unterschied
         zwischen "darf dokumentieren" und "darf hier dokumentieren".
         """
-        if request.method in self.SAFE:
-            return True
-        return may_write(request.user, obj)
+        return self._pruefen(request, view, obj)
 
-    @property
-    def message(self):
-        return (
-            "Als Aushilfe oder Azubi kannst du Einträge lesen, "
-            "aber nicht ändern."
-        )
+    message = "Dafür fehlt die Berechtigung."

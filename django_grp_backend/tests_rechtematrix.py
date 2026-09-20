@@ -134,14 +134,40 @@ class MatrixEntscheidetTestCase(MatrixBasis):
         """
         Der Notausgang fuer den Tag, an dem sich jemand aussperrt. Und den
         Tag gibt es.
+
+        Es ist der Superuser und nur er. `is_staff` gehoerte dazu, bis
+        auffiel, dass ein Signal diesen Schalter an `access_level == "admin"`
+        festhaelt: damit war jedes Mitarbeiterkonto unbeschraenkbar.
         """
-        chef = User.objects.create_user(
-            username="chef", password="testpass123", is_staff=True
+        chef = User.objects.create_superuser(
+            username="chef", password="testpass123", email=""
         )
         setze(chef)  # alles auf kein Zugriff
 
         self.assertTrue(rechte.darf(chef, rechte.PROTOKOLLE, schreiben=True))
         self.assertTrue(rechte.darf(chef, rechte.ORG_STRUKTUR, schreiben=True))
+
+    def test_ein_mitarbeiterkonto_laesst_sich_beschraenken(self):
+        """
+        Die Gegenprobe, und der Grund fuer die Aenderung: `is_staff` ist kein
+        Generalschluessel mehr. Sonst waere die Matrix fuer genau die Konten
+        wirkungslos, die man mit ihr beschraenken will.
+        """
+        mitarbeit = User.objects.create_user(
+            username="mita", password="testpass123", is_staff=True
+        )
+        # Ohne Matrix entscheidet die Stufe, und die ist hier „Mitarbeiter".
+        self.assertTrue(
+            rechte.darf(mitarbeit, rechte.ORG_STRUKTUR, schreiben=True)
+        )
+
+        setze(mitarbeit, **{rechte.PROTOKOLLE: rechte.LESEN})
+
+        self.assertTrue(rechte.darf(mitarbeit, rechte.PROTOKOLLE))
+        self.assertFalse(
+            rechte.darf(mitarbeit, rechte.PROTOKOLLE, schreiben=True)
+        )
+        self.assertFalse(rechte.darf(mitarbeit, rechte.ORG_STRUKTUR))
 
     def test_alles_auf_kein_zugriff_sperrt_wirklich(self):
         setze(self.fachkraft)
@@ -334,7 +360,15 @@ class MatrixVergebenTestCase(MatrixBasis):
         Zugriffsstufe zurueck - am eigenen Konto waere das ein Weg, eine
         Beschraenkung loszuwerden, die jemand anders gesetzt hat.
         """
-        setze(self.leitung, **{rechte.PROTOKOLLE: rechte.LESEN})
+        # Das Recht zum Vergeben bleibt stehen - sonst scheitert der Aufruf
+        # schon daran und nicht an der Regel, um die es hier geht.
+        setze(
+            self.leitung,
+            **{
+                rechte.PROTOKOLLE: rechte.LESEN,
+                rechte.PERSONAL_ROLLEN: rechte.SCHREIBEN,
+            },
+        )
         self.client.force_authenticate(user=self.leitung)
 
         antwort = self.client.delete(f"/api/v1/rechte/{self.leitung.id}/")
@@ -392,8 +426,8 @@ class MatrixVergebenTestCase(MatrixBasis):
         Seine Matrix haette keine Wirkung. Eine Oberflaeche, die sie
         trotzdem anbietet, verspricht etwas Falsches.
         """
-        zweite_leitung = User.objects.create_user(
-            username="chef2", password="testpass123", is_staff=True
+        zweite_leitung = User.objects.create_superuser(
+            username="chef2", password="testpass123", email=""
         )
         self.client.force_authenticate(user=self.leitung)
 
@@ -403,6 +437,24 @@ class MatrixVergebenTestCase(MatrixBasis):
             format="json",
         )
         self.assertEqual(antwort.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_ein_mitarbeiterkonto_laesst_sich_dagegen_beschneiden(self):
+        """
+        Der Unterschied zum Superuser: hier wirkt die Matrix, also darf sie
+        gesetzt werden. Vorher wies der Endpunkt beides ab.
+        """
+        mitarbeit = User.objects.create_user(
+            username="mita", password="testpass123", is_staff=True
+        )
+        self.client.force_authenticate(user=self.leitung)
+
+        antwort = self.client.put(
+            f"/api/v1/rechte/{mitarbeit.id}/",
+            {"rechte": {a: rechte.KEIN for a in rechte.ALLE_AKTIONEN}},
+            format="json",
+        )
+        self.assertEqual(antwort.status_code, status.HTTP_200_OK)
+        self.assertFalse(rechte.darf(mitarbeit, rechte.PROTOKOLLE))
 
     def test_die_aenderung_steht_im_aenderungsprotokoll(self):
         from django_grp_org.audit import AuditEvent

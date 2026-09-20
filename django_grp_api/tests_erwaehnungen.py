@@ -132,11 +132,18 @@ class ErwaehnungenTestCase(APITestCase):
 
 class GeneralschluesselTestCase(APITestCase):
     """
-    Superuser und `is_staff` duerfen immer alles.
+    Nur der Superuser darf immer alles.
 
     Das ist der Notausgang der Rechteumstellung: wer den Schalter auf
-    `rollen` stellt und dabei eine Zuweisung vergisst, kommt ueber ein
-    solches Konto wieder hinein - ohne Datenbankzugriff.
+    `rollen` stellt und dabei eine Zuweisung vergisst, kommt ueber dieses
+    Konto wieder hinein - ohne Datenbankzugriff.
+
+    **`is_staff` gehoerte dazu und gehoert es nicht mehr.** Ein Signal haelt
+    den Schalter an `access_level == "admin"` fest; damit trug jedes
+    Mitarbeiterkonto den Generalschluessel - also genau die Konten, die man
+    mit der Rechtematrix beschraenken will. Ein `is_staff`-Konto darf
+    weiterhin viel, aber es darf es ueber die Rueckfalltabelle seiner Stufe,
+    und die schlaegt eine gesetzte Matrix nicht.
     """
 
     def setUp(self):
@@ -158,13 +165,37 @@ class GeneralschluesselTestCase(APITestCase):
             )
 
     @override_settings(RECHTE_QUELLE="rollen")
-    def test_staff_darf_alles_auch_unter_rollen(self):
-        """Ohne eine einzige Rollenzuweisung."""
+    def test_staff_ohne_rolle_darf_unter_rollen_nichts(self):
+        """
+        Unter `rollen` zaehlen nur Zuweisungen, und `is_staff` ist keine.
+
+        Vorher stand hier das Gegenteil, und das war der Kern der Luecke: ein
+        Konto ohne eine einzige Rollenzuweisung durfte alles, solange der
+        Schalter stand. Der Notausgang ist jetzt der Superuser, siehe
+        `test_superuser_ebenso`.
+        """
         for aktion in rechte.MATRIX["executive"]:
-            self.assertTrue(
+            self.assertFalse(
                 rechte.darf(self.mitarbeit, aktion, schreiben=True),
-                f"Staff darf {aktion} nicht",
+                f"Staff darf {aktion} ohne Rollenzuweisung",
             )
+
+    def test_staff_darf_nichts_gegen_eine_gesetzte_matrix(self):
+        """
+        Die Probe auf die Absicht: eine Matrix muss ein Mitarbeiterkonto
+        beschraenken koennen. Sonst ist sie fuer die Konten, auf die es
+        ankommt, eine Anzeige.
+        """
+        from django_grp_backend.models import Rechtezuweisung
+
+        for aktion in rechte.ALLE_AKTIONEN:
+            Rechtezuweisung.objects.create(
+                user=self.mitarbeit, aktion=aktion, stufe=rechte.KEIN
+            )
+
+        for aktion in rechte.ALLE_AKTIONEN:
+            with self.subTest(aktion=aktion):
+                self.assertFalse(rechte.darf(self.mitarbeit, aktion))
 
     @override_settings(RECHTE_QUELLE="rollen")
     def test_superuser_ebenso(self):
