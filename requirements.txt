@@ -28,7 +28,7 @@ Django==6.1.1
 djangorestframework==3.18.0
 drf-nested-routers==0.95.3
 http-ece==1.2.1
-idna==3.19
+idna==3.20
 josepy==2.2.0
 kombu==5.6.2
 mypy-extensions==1.1.0
