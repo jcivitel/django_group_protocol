@@ -46,7 +46,7 @@ pypdf==6.18.0
 pyRFC3339==2.1.0
 python-dateutil==2.9.0.post0
 python-decouple==3.8
-pytz==2026.3.post1
+pytz==2026.4
 pywebpush==2.5.0
 redis==8.1.0
 reportlab==5.0.1
