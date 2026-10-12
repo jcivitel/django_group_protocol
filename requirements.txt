@@ -37,7 +37,7 @@ packaging==26.3
 parsedatetime==2.6
 pathspec==1.1.1
 pillow==12.3.0
-platformdirs==4.12.2
+platformdirs==4.12.4
 prompt_toolkit==3.0.53
 py-vapid==1.9.4
 pycparser==3.1
