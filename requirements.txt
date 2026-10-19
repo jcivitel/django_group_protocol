@@ -40,7 +40,7 @@ pillow==12.3.0
 platformdirs==4.13.3
 prompt_toolkit==3.0.53
 py-vapid==1.9.6
-pycparser==3.1
+pycparser==3.11
 pyOpenSSL==26.4.0
 pypdf==6.19.0
 pyRFC3339==2.1.1
