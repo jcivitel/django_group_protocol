@@ -43,7 +43,7 @@ py-vapid==1.9.4
 pycparser==3.1
 pyOpenSSL==26.4.0
 pypdf==6.19.0
-pyRFC3339==2.1.0
+pyRFC3339==2.1.1
 python-dateutil==2.9.0.post0
 python-decouple==3.8
 pytz==2026.5
